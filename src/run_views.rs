@@ -23,10 +23,16 @@ pub const STATUSES: &[&str] = &[
 const ACTIVE: &[&str] = &["ADMITTED", "PENDING", "ENQUEUED", "DELAYED"];
 const RETRYABLE: &[&str] = &["ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"];
 
-/// Actions the canonical service would currently consider for a run status.
+/// Actions the canonical service would currently consider for a run and its effect history.
 /// The service re-checks authority and effect state on every request.
-pub(crate) fn actions(status: &str) -> Value {
-    json!({"cancel": ACTIVE.contains(&status), "retry": RETRYABLE.contains(&status), "reconcile": status == "RECOVERY_REQUIRED"})
+pub(crate) fn actions(run: &Value) -> Value {
+    let status = run["status"].as_str().unwrap_or("");
+    let root_effect_allows_retry =
+        run["effect"].is_null() || run["effect"]["state"] == "not_applied";
+    let flow_has_effect_history = run["effects"]
+        .as_array()
+        .is_some_and(|effects| !effects.is_empty());
+    json!({"cancel": ACTIVE.contains(&status), "retry": RETRYABLE.contains(&status) && root_effect_allows_retry && !flow_has_effect_history, "reconcile": status == "RECOVERY_REQUIRED"})
 }
 
 fn step_prefix(id: &str) -> String {
@@ -303,7 +309,7 @@ impl Core {
             let mut summary = crate::inspection::run_summary(run.clone());
             summary["type"] = run["definition"]["type"].clone();
             summary["failure"] = failure.map(Value::Object).unwrap_or(Value::Null);
-            summary["actions"] = actions(run_status);
+            summary["actions"] = run["actions"].clone();
             runs.push(summary);
             if runs.len() as i64 == limit {
                 break;
@@ -544,11 +550,35 @@ mod tests {
         assert_eq!(w["steps"][0]["state"], "running");
         assert_eq!(w["steps"][1]["state"], "pending");
         assert!(w["failure"].is_null());
-        assert_eq!(actions("PENDING")["cancel"], true);
-        assert_eq!(actions("ERROR")["retry"], true);
+        assert_eq!(actions(&json!({"status":"PENDING"}))["cancel"], true);
+        assert_eq!(actions(&json!({"status":"ERROR"}))["retry"], true);
         assert_eq!(
-            actions("SUCCESS"),
+            actions(&json!({"status":"SUCCESS"})),
             json!({"cancel":false,"retry":false,"reconcile":false})
+        );
+    }
+
+    #[test]
+    fn retry_actions_respect_root_receipts_and_flow_effect_history() {
+        for state in ["completed", "uncertain", "unknown"] {
+            assert_eq!(
+                actions(&json!({"status":"ERROR","effect":{"state":state}}))["retry"],
+                false
+            );
+        }
+        assert_eq!(
+            actions(&json!({"status":"ERROR","effect":{"state":"not_applied"}}))["retry"],
+            true
+        );
+        for state in ["completed", "uncertain", "not_applied"] {
+            assert_eq!(
+                actions(&json!({"status":"ERROR","effects":[{"state":state}]}))["retry"],
+                false
+            );
+        }
+        assert_eq!(
+            actions(&json!({"status":"CANCELLED","effects":[]}))["retry"],
+            true
         );
     }
 }

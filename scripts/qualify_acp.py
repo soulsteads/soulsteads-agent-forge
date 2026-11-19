@@ -168,13 +168,20 @@ class Driver:
         out = e.get('output') or {}
         harness = out.get('harness', {})
         launches = sum(l['action'] == 'harness_launched' for l in d['logs'])
+        attempt = self.attempt_for(run_id)
+        artifact = attempt.parent / 'workspace/evidence.txt' if attempt else None
+        artifact_ok = bool(artifact and artifact.is_file() and not artifact.is_symlink()
+                           and artifact.read_bytes() == SEED.encode())
+        dependent_ok = (d.get('output') or {}).get('output') == 'Consumed ' + SEED
         res = {'status': d['status'], 'effect_state': e['state'], 'launches': launches,
                'transport': harness.get('transport'), 'adapter': harness.get('adapter'),
                'version': harness.get('version'), 'tool_events': harness.get('tool_events'),
                'session_id': harness.get('session_id'), 'served_model': harness.get('served_model'),
                'result': out.get('result'), 'dependent': (d.get('output') or {}).get('output'),
+               'artifact_matches': artifact_ok,
                'permission_decisions': harness.get('permission_decisions'),
-               'passed': bool(ok and out.get('result') == {'file': 'evidence.txt', 'seed': SEED} and launches == 1)}
+               'passed': bool(ok and out.get('result') == {'file': 'evidence.txt', 'seed': SEED}
+                              and launches == 1 and artifact_ok and dependent_ok)}
         self.results[name] = res
         return res
 
@@ -269,6 +276,8 @@ class Driver:
             self.stop_postgres()
             save(self.ev / 'results.json', self.results)
         print(json.dumps({k: v.get('passed') if isinstance(v, dict) else v for k, v in self.results.items()}))
+        if not self.results or any(not isinstance(value, dict) or not value.get('passed') for value in self.results.values()):
+            raise SystemExit(1)
 
 
 if __name__ == '__main__':

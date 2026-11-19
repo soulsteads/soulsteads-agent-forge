@@ -526,10 +526,7 @@ mod tests {
         let mut p = profile();
         for endpoint in [
             "file:///etc/passwd",
-            &format!(
-                "{}://{}:{}@localhost/v1",
-                "http", "fixture", "demo-password"
-            ),
+            &format!("{}://{}:{}@localhost/v1", "http", "user", "password"),
             "http://localhost/v1?token=x",
             "http://localhost/v1#fragment",
         ] {

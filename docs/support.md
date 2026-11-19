@@ -2,7 +2,14 @@
 
 ## Requirements
 
-The preview targets Linux. Building the `agent-forge` binary requires Rust 1.97 or later and a C compiler. Use a dedicated PostgreSQL database for DBOS. The SQLite file in the Forge home holds local admission and effect records; it does not provide a standalone database option. Backup and restore also require PostgreSQL client utilities matching the server's major version. See [configuration](operations.md#configuration).
+| What you are doing | What you need |
+| --- | --- |
+| Build `agent-forge` | Linux, Rust 1.97 or later, and a C compiler |
+| Start a new home | An empty, dedicated PostgreSQL database for DBOS and a writable private home |
+| Back up or restore | `psql`, `pg_dump`, and `pg_restore` on `PATH`, matching the server's major version |
+| Run the documentation and source checks | Git and Python 3 |
+
+The Forge home's SQLite file stores local admissions and effect records; it is not a PostgreSQL alternative. See [configuration](operations.md#configuration) for database and home settings.
 
 ## Tested preview path
 

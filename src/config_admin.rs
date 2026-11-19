@@ -292,9 +292,6 @@ mod tests {
     use crate::settings::{Overrides, Paths, Settings};
     use std::{collections::BTreeMap, sync::Arc};
 
-    const FIXTURE_DB_USER: &str = "preview_fixture_user";
-    const FIXTURE_DB_PASSWORD: &str = "preview-fixture-password";
-
     fn core() -> (tempfile::TempDir, Arc<Core>) {
         let home = tempfile::tempdir().unwrap();
         core::init(home.path()).unwrap();
@@ -309,8 +306,8 @@ mod tests {
         );
         let overrides = Overrides {
             database_url: Some(format!(
-                "{}://{FIXTURE_DB_USER}:{FIXTURE_DB_PASSWORD}@127.0.0.1:1/x",
-                "postgresql"
+                "{}://{}:{}@127.0.0.1:1/x",
+                "postgresql", "secret-user", "secret-pass"
             )),
             ..Default::default()
         };
@@ -339,7 +336,7 @@ mod tests {
         let (_home, core) = core();
         let view = core.settings_view("operator").unwrap();
         let text = view.to_string();
-        assert!(!text.contains(FIXTURE_DB_USER) && !text.contains(FIXTURE_DB_PASSWORD));
+        assert!(!text.contains("secret-pass") && !text.contains("secret-user"));
         let row = |k: &str| {
             view["settings"]
                 .as_array()
@@ -381,10 +378,7 @@ mod tests {
             core.settings_set(
                 "operator",
                 "database.url",
-                &json!(format!(
-                    "{}://{FIXTURE_DB_USER}:{FIXTURE_DB_PASSWORD}@db.example.invalid/d",
-                    "postgresql"
-                ))
+                &json!(format!("{}://{}:{}@h/d", "postgresql", "u", "p"))
             )
             .is_err()
         );
@@ -463,9 +457,9 @@ mod tests {
         let good = json!({"base_url":"http://127.0.0.1:8000/v1","model":"m","key_env":"MODEL_KEY"});
         for bad in [
             json!({"base_url":"ftp://x/v1","model":"m"}),
-            json!({"base_url":format!("{}://{}:{}@models.example.invalid/v1", "http", "fixture", "demo-password"),"model":"m"}),
+            json!({"base_url":format!("{}://{}:{}@x/v1", "http", "u", "p"),"model":"m"}),
             json!({"base_url":"http://x/v1","model":""}),
-            json!({"base_url":"https://x/v1","model":"m","key_env":format!("sk-live-{}", "z".repeat(32))}),
+            json!({"base_url":"https://x/v1","model":"m","key_env":format!("sk-{}", "synthetic".repeat(4))}),
             json!({"base_url":"http://remote.example/v1","model":"m","key_env":"K"}),
             json!({"base_url":"https://x/v1","model":"m","api_key":"literal"}),
         ] {

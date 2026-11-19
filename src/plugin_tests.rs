@@ -1238,7 +1238,7 @@ async fn protocol_one_configured_plugins_keep_working_unchanged() {
         command: vec![
             "/bin/sh".into(),
             "-c".into(),
-            "printf '{\"api_version\":1,\"output\":{}}'".into(),
+            "read -r request; printf '{\"api_version\":1,\"output\":{}}'".into(),
         ],
         timeout_seconds: 5,
         env_passthrough: vec![],

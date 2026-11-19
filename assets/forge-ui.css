@@ -44,6 +44,12 @@ pre.bad{color:#ffbcae}
 code{overflow-wrap:anywhere}
 tr.step-failed td{background:#2a1714}
 #view-workflows form,#view-runs form{margin:10px 0}
+:is(#view-runs,#view-skills){overflow-wrap:anywhere}
+#view-runs :is(label,input,select,textarea,button){min-inline-size:0;max-inline-size:100%;box-sizing:border-box}
+.operator-table > table{min-inline-size:30rem}
+.operator-table :is(th,button){overflow-wrap:normal}
+#sk-table td:nth-child(3){white-space:nowrap}
+.operator-table:focus-visible,:is(#view-runs,#view-skills) pre:focus-visible{outline:2px solid #9ad7e1;outline-offset:2px}
 .stat-ok{color:#8fe0b0}
 .stat-bad{color:#ffbcae}
 pre.transcript{max-height:260px;min-height:48px;overflow:auto;white-space:pre-wrap}

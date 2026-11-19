@@ -147,6 +147,366 @@ fn launches(home: &std::path::Path) -> String {
         .unwrap_or_else(|_| "0".into())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn harness_startup_does_not_launch_during_an_admission_cut() {
+    use std::time::Duration;
+    let (home, core) = fixture_with("scan");
+    let e = admitted(&core, "deadline-during-cut");
+    let store = core.store.clone();
+    let (locked, held) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let holder = tokio::task::spawn_blocking(move || {
+        store
+            .write(|_| {
+                locked.send(()).unwrap();
+                let _ = released.recv_timeout(Duration::from_secs(12));
+                Ok(())
+            })
+            .unwrap();
+    });
+    held.await.unwrap();
+    let runner = core.clone();
+    let invocation = e.clone();
+    let task = tokio::spawn(async move {
+        runner
+            .run_harness(&invocation, "one", &action("slow"))
+            .await
+    });
+    let finished_while_held = tokio::time::timeout(Duration::from_secs(4), async {
+        let mut tick = tokio::time::interval(Duration::from_millis(15));
+        loop {
+            tick.tick().await;
+            if let Some(state) = core.harness_attempt(&e.dbos_id, "one")
+                && state["state"] == "timed_out"
+            {
+                break state.get("pid").is_none();
+            }
+        }
+    })
+    .await;
+    // Release even when the assertion is about to fail so the old code can
+    // finish its own timeout and reap its child before the diagnostic exits.
+    release.send(()).unwrap();
+    holder.await.unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(8), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(finished_while_held, Ok(true)),
+        "a startup blocked by the admission cut must time out without a child PID"
+    );
+    assert_eq!(
+        launches(home.path()),
+        "0",
+        "the child must not reach startup"
+    );
+    assert!(
+        result
+            .err()
+            .expect("deadline must deny the result")
+            .to_string()
+            .contains("timed_out")
+    );
+}
+
+#[tokio::test]
+async fn harness_does_not_start_after_durable_cancellation() {
+    let (home, core) = fixture_with("scan");
+    let fenced = admitted(&core, "fenced-before-harness-start");
+    core.fence_flow(&fenced).unwrap();
+    let error = core
+        .run_harness(&fenced, "one", &action("readonly"))
+        .await
+        .err()
+        .expect("a fenced harness must be refused");
+    assert!(error.to_string().contains("cancelled by its durable fence"));
+    let attempt = core.harness_attempt(&fenced.dbos_id, "one").unwrap();
+    assert_eq!(attempt["state"], "cancelled");
+    assert!(attempt.get("pid").is_none());
+    assert_eq!(launches(home.path()), "0");
+
+    let allowed = admitted(&core, "harness-start-is-authorized");
+    assert!(
+        core.run_harness(&allowed, "one", &action("readonly"))
+            .await
+            .is_ok()
+    );
+    assert_eq!(launches(home.path()), "1");
+}
+
+#[test]
+fn harness_ready_authority_requires_time_and_a_clear_fence() {
+    use crate::flow_effects::{HarnessAuthority, HarnessDenial, authorize_harness_ready};
+    use std::time::{Duration, Instant};
+
+    let start = Instant::now();
+    let deadline = start + Duration::from_secs(1);
+    assert_eq!(
+        authorize_harness_ready(deadline, start, Some(false)),
+        Ok(())
+    );
+    assert_eq!(
+        authorize_harness_ready(deadline, deadline, Some(false)),
+        Err(HarnessDenial::TimedOut)
+    );
+    assert_eq!(
+        authorize_harness_ready(deadline, start, Some(true)),
+        Err(HarnessDenial::Fenced)
+    );
+    assert_eq!(
+        authorize_harness_ready(deadline, start, None),
+        Err(HarnessDenial::Busy)
+    );
+
+    let (_home, core) = fixture();
+    let e = admitted(&core, "inert-ready");
+    let authority = HarnessAuthority::new(&core, &e, deadline);
+    assert_eq!(authority.check_at(|| start), Ok(()));
+    core.store
+        .write(|_| {
+            assert_eq!(authority.check_at(|| start), Err(HarnessDenial::Busy));
+            assert_eq!(
+                authority.check_at(|| deadline),
+                Err(HarnessDenial::TimedOut)
+            );
+            Ok(())
+        })
+        .unwrap();
+    core.fence_flow(&e).unwrap();
+    assert_eq!(authority.check_at(|| start), Err(HarnessDenial::Fenced));
+}
+
+#[test]
+fn harness_durable_completion_rechecks_the_deadline_and_fence() {
+    use std::{
+        cell::Cell,
+        time::{Duration, Instant},
+    };
+
+    let (_home, core) = fixture();
+    let e = admitted(&core, "inert-completion");
+    let start = Instant::now();
+    let deadline = start + Duration::from_secs(1);
+    for slot in ["clock", "positive", "fenced"] {
+        core.store.write(|c| {
+            c.execute(
+                "INSERT INTO forge_flow_effects(run_id,slot,invocation_digest,action_digest,state,action)
+                 VALUES(?1,?2,?3,'fixture','uncertain','{}')",
+                rusqlite::params![e.dbos_id, slot, e.invocation_sha256],
+            )?;
+            Ok(())
+        }).unwrap();
+    }
+    let states = |slot| {
+        core.store
+            .write(|c| {
+                Ok(c.query_row(
+                    "SELECT state,receipt FROM forge_flow_effects WHERE run_id=?1 AND slot=?2",
+                    rusqlite::params![e.dbos_id, slot],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?)),
+                )?)
+            })
+            .unwrap()
+    };
+    let inert = json!({"slot":"synthetic","sha256":"inert"});
+    let sampled = Cell::new(false);
+    let expires = || {
+        if sampled.replace(true) {
+            deadline
+        } else {
+            start
+        }
+    };
+    let error = core
+        .complete_flow_effect(&e, "clock", "fixture", &inert, Some(deadline), expires)
+        .unwrap_err();
+    assert!(error.to_string().contains("timed_out"));
+    assert_eq!(states("clock"), ("uncertain".into(), None));
+    core.complete_flow_effect(&e, "positive", "fixture", &inert, Some(deadline), || start)
+        .unwrap();
+    assert_eq!(
+        states("positive"),
+        ("completed".into(), Some(inert.to_string()))
+    );
+    core.fence_flow(&e).unwrap();
+    let error = core
+        .complete_flow_effect(&e, "fenced", "fixture", &inert, Some(deadline), || start)
+        .unwrap_err();
+    assert!(error.to_string().contains("cancelled"));
+    assert_eq!(states("fenced"), ("uncertain".into(), None));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn contention_reaped_child_receipts_after_admission_cut() {
+    use std::time::Duration;
+    let (home, core) = fixture_with("scan");
+    let ready = home.path().join("ready");
+    let finish = home.path().join("finish");
+    let body = format!(
+        ": > '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; printf '%s\\n' '{{\"answer\":\"42\"}}'",
+        ready.display(),
+        finish.display(),
+    );
+    let mut runner = profile(home.path(), &body, "read-only", 12);
+    runner.containment = "scan".into();
+    let mut policy = core.policy.clone();
+    policy.runners.insert("reap".into(), runner);
+    let core = rebuild(&home, policy);
+    let envelope = admitted(&core, "reap-under-cut");
+    let run_id = envelope.dbos_id.clone();
+    let task = {
+        let core = core.clone();
+        tokio::spawn(async move { core.flow_effect(&envelope, "one", &action("reap")).await })
+    };
+    tokio::time::timeout(Duration::from_secs(4), async {
+        while !ready.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("owned inert child must have received its input");
+    let (locked, held) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let store = core.store.clone();
+    let holder = tokio::task::spawn_blocking(move || {
+        store
+            .write(|_| {
+                locked.send(()).unwrap();
+                released.recv_timeout(Duration::from_secs(7)).unwrap();
+                Ok(())
+            })
+            .unwrap();
+    });
+    held.await.unwrap();
+    std::fs::write(&finish, b"finish").unwrap();
+    let reaped = tokio::time::timeout(Duration::from_secs(4), async {
+        loop {
+            if let Some(attempt) = core.harness_attempt(&run_id, "one")
+                && attempt["finished_ms"].is_number()
+                && let Some(pid) = attempt["pid"].as_u64()
+            {
+                break !alive(pid);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    release.send(()).unwrap();
+    holder.await.unwrap();
+    assert!(
+        matches!(reaped, Ok(true)),
+        "child cleanup must proceed while SQLite is held"
+    );
+    let output = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        output.expect("timely release must allow the completed result to receipt")["result"]["answer"],
+        "42"
+    );
+    let states = core
+        .store
+        .write(|c| {
+            c.query_row(
+        "SELECT state, receipt IS NOT NULL FROM forge_flow_effects WHERE run_id=?1 AND slot='one'",
+        [&run_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+    ).map_err(Into::into)
+        })
+        .unwrap();
+    assert_eq!(states, ("completed".into(), true));
+    assert_eq!(launches(home.path()), "1");
+}
+
+#[test]
+fn contention_at_receipt_cannot_admit_after_deadline_or_fence() {
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        time::{Duration, Instant},
+    };
+    for fence in [false, true] {
+        let (_home, core) = fixture();
+        let e = admitted(&core, "held-final-commit");
+        core.store.write(|c| {
+            c.execute(
+                "INSERT INTO forge_flow_effects(run_id,slot,invocation_digest,action_digest,state,action)
+                 VALUES(?1,'one',?2,'fixture','uncertain','{}')",
+                rusqlite::params![e.dbos_id, e.invocation_sha256],
+            )?;
+            Ok(())
+        }).unwrap();
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(1);
+        let expired = AtomicBool::new(false);
+        let (entered, waiting) = std::sync::mpsc::channel();
+        let (send_result, result) = std::sync::mpsc::channel();
+        std::thread::scope(|threads| {
+            let expiry = &expired;
+            let runner = &core;
+            let envelope = &e;
+            core.store
+                .write(|c| {
+                    threads.spawn(move || {
+                        entered.send(()).unwrap();
+                        let receipt = json!({"slot":"one","sha256":"inert"});
+                        let completed = runner.complete_flow_effect(
+                            envelope,
+                            "one",
+                            "fixture",
+                            &receipt,
+                            Some(deadline),
+                            || {
+                                if expiry.load(Ordering::SeqCst) {
+                                    deadline
+                                } else {
+                                    start
+                                }
+                            },
+                        );
+                        send_result.send(completed).unwrap();
+                    });
+                    waiting.recv_timeout(Duration::from_secs(2)).unwrap();
+                    assert!(matches!(
+                        result.try_recv(),
+                        Err(std::sync::mpsc::TryRecvError::Empty)
+                    ));
+                    if fence {
+                        c.execute(
+                            "INSERT INTO forge_run_fences(run_id) VALUES(?1)",
+                            [&e.dbos_id],
+                        )?;
+                    } else {
+                        expired.store(true, Ordering::SeqCst);
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            let error = result
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains(if fence { "cancelled" } else { "timed_out" })
+            );
+        });
+        let retained =
+            core.store
+                .write(|c| {
+                    c.query_row(
+            "SELECT state,receipt FROM forge_flow_effects WHERE run_id=?1 AND slot='one'",
+            [&e.dbos_id],
+            |row| Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?)),
+        ).map_err(Into::into)
+                })
+                .unwrap();
+        assert_eq!(retained, ("uncertain".into(), None));
+    }
+}
+
 // Deterministic public-CLI emulator, never a real native harness/model process.
 fn soulsteads_fixture(case: &str) -> (tempfile::TempDir, Arc<Core>) {
     use std::os::unix::fs::PermissionsExt;
@@ -1235,12 +1595,18 @@ async fn acp_cancellation_fence_cancels_the_turn_and_requires_reconciliation() {
                 .await
         })
     };
-    for _ in 0..100 {
-        if home.path().join("pid").exists() {
-            break;
+    let log = attempt_dir(&core, &e, "root/step:h").join("updates.jsonl");
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
+        loop {
+            interval.tick().await;
+            if std::fs::read_to_string(&log).is_ok_and(|s| s.contains("working...")) {
+                break;
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
+    })
+    .await
+    .expect("fixture must acknowledge an active prompt before fencing");
     core.fence_flow(&e).unwrap();
     assert!(runner.await.unwrap().is_err());
     assert_eq!(notes(home.path(), "cancel").len(), 1);
@@ -1345,7 +1711,7 @@ fn pi_is_gated_behind_acknowledgement_sandbox_and_an_isolated_home() {
     with_home["env_passthrough"] = json!(["PATH", "HOME"]);
     assert!(ok(with_home).is_err());
     let mut with_home = pi();
-    with_home["env"] = json!({"HOME":"/tmp/forge-fixture-home"});
+    with_home["env"] = json!({"HOME":"/var/lib/forge-fixture"});
     assert!(ok(with_home).is_err());
     // The acknowledgement and sandbox belong to pi only.
     let mut other = json!({"adapter":"codex","executable":"/bin/true","allow_unconfined":true});
@@ -1413,6 +1779,15 @@ fn the_pi_agent_directory_must_be_a_dedicated_existing_directory() {
             .to_string()
     };
     assert!(profile(&dedicated).validate_for_paths("p", &paths).is_ok());
+    // Bind paths come from the validated profile, not the service environment.
+    // No variable is set and no agent or sandbox is launched in this check.
+    let mut inherited = profile(&dedicated);
+    inherited.env_passthrough = Some(vec!["PI_CODING_AGENT_DIR".into()]);
+    assert!(
+        inherited
+            .validate_for_paths("p", &paths)
+            .is_err_and(|e| e.to_string().contains("PI_CODING_AGENT_DIR"))
+    );
     // Not a plain existing directory, not absolute, no `..`.
     for bad in [home.path().join("missing"), file, link] {
         assert!(refused(&bad).contains("PI_CODING_AGENT_DIR"), "{bad:?}");

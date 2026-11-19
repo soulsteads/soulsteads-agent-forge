@@ -37,7 +37,7 @@ Existing homes must add `harness` to the actor's allowed `types`; new homes incl
 ## Soulsteads native adapter
 
 The production adapter name is `soulsteads`; the executable is an operator-installed
-`soulsteads-harness`. It uses the existing public CLI/TOML/JSONL interface without a native library dependency or ACP wrapper. Configure an explicit model and endpoint:
+`soulsteads-harness`. It uses the harness CLI and its TOML/JSONL contract without a native library dependency or ACP wrapper. Configure an explicit model and endpoint:
 
 ```json
 "native-files": {
@@ -73,7 +73,7 @@ The native engine's default turn/tool limits remain in force; Forge supplies the
 profile deadline/output bounds and a 4 MiB per-write bound.
 
 Only `structured_output`, `tool_use` and `session_correlation` are declared. Usage
-and served-model reporting are not mapped, even when native
+and served-model reporting are not mapped in this first packet, even when native
 events contain them; requiring either capability refuses before dispatch.
 
 Success requires strict UTF-8 JSONL with ordered sequence numbers, a new session
@@ -91,7 +91,7 @@ Native journals are retained for inspection, never adopted as Forge receipts.
 
 Deterministic fixtures establish protocol handling only. The native CLI emulator
 in `cargo test` uses Python 3.11+ (`tomllib`); it makes no model calls and executes
-no native harness. There is no added runtime dependency. Qualify permission denials, deadlines, and crash handling against the exact installed runner before relying on them.
+no native harness. Those fixtures do not qualify all crash windows or native permission behavior.
 The existing containment policy applies, including scan-mode limits. On a host
 without cgroups, scan termination can reap the direct child before Tokio waits
 (`ECHILD`); the effect remains uncertain and the attempt may retain `running`
@@ -180,7 +180,3 @@ At startup, before DBOS recovery can run, Forge reconciles every attempt recorde
 - The artifact manifest is bounded (64 artifact rows plus one truncation marker, 1,024 visited entries, depth 32, 4 MiB per file); excess is recorded in the manifest as `truncated`/`oversize` entries and never converts a validated successful run into a failure. `tool_events` is the number of tool-use events the adapter observed (Codex, OpenCode) or `null` when the harness does not report it (Claude).
 - Runner listings (CLI, MCP, dashboard, snapshot) are readable by any actor with `read`. They show profile name, adapter, executable **file name only**, model/provider, permission mode, limits, containment mode, argument *count*, environment variable *names* only, observed version and availability. Absolute paths, arguments and values are not listed.
 - Native recovery of a resumable session is not implemented: no harness is resumed after an interrupted attempt.
-
-## Verify a runner before scheduling
-
-Use `agent-forge runners test NAME` to check an installed profile. This checks availability, not tool permissions or model behavior. Run a small test workflow in a disposable workspace, inspect its tool and result records, and verify the expected artifacts. Check denial and timeout behavior with test data before scheduling the runner. No harness session resumes automatically after an interrupted attempt.

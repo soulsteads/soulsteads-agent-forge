@@ -1,17 +1,19 @@
 # Plugins
 
-Forge has two kinds of plugin, both executables that speak a JSON protocol on stdio and both trusted code with the service's operating-user authority (neither is a sandbox). Their process environment is an explicit allowlist, not the service's (see [Process environment](#process-environment)):
+Forge supports two kinds of executable plugin. Both speak JSON over stdio and run under the service's operating-system user. The [environment allowlist](#process-environment) limits inherited variables; it does not sandbox the executable. Install only code you trust.
 
-1. **Configured executables** (protocol 1): an operator lists them in `config.json` `plugins`. They provide a work type `plugin.NAME` and nothing else. See [Configured executables](#configured-executables-protocol-1).
-2. **Installed plugins** (protocol 2): a directory with a `manifest.json` installed with `agent-forge plugins install`. They can contribute **jobs, workflows, CLI commands, HTTP API routes, MCP tools and dashboard pages** through declared extension points. See below.
+| Use | Choose |
+| --- | --- |
+| Add one `plugin.NAME` work type | A [configured executable](#configured-executables-protocol-1) in `config.json` (protocol 1) |
+| Ship jobs, workflows, CLI commands, HTTP routes, MCP tools, or dashboard pages | An [installed plugin](#lifecycle) with a `manifest.json` (protocol 2) |
 
 Core ships the extension points and no bundled plugin. The only plugin in the source tree is a **test-only fixture** (`tests/fixtures/demo-plugin`, not part of the published crate) with one contribution of each kind. DBOS remains the only workflow runner: plugin jobs and workflows are materialized into the ordinary work store and native schedules and run by the existing `forge_execute_v1` / `forge_scheduled_v1` workflows; plugin calls that run inside workflows go through the same checkpointed step, effect key and reconciliation rules as every other external effect.
 
 ## Manifest reference
 
-`manifest.json` at the plugin directory root. The vocabulary and validation follow forge-reference (`src/forge/plugin_runtime/manifest.py` `PluginManifest`/`V2ResourceDeclaration` and `descriptors.py`); parsing is strict.
+Put `manifest.json` at the plugin directory root. Parsing is strict. The annotated outline below shows the field layout; comments and placeholders are not valid JSON. The source tree's `tests/fixtures/demo-plugin` directory contains a complete manifest and resources.
 
-```json
+```jsonc
 {
   "id": "demo-fixture",              // ^[a-z][a-z0-9]*(-[a-z0-9]+)*$, at most 48 characters
   "version": "1.0.0",                // semantic version

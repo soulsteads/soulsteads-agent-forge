@@ -20,14 +20,18 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       CARGO_BUILD_JOBS: '1'
-      CARGO_HOME: ${{ runner.temp }}/forge-cargo
-      CARGO_TARGET_DIR: ${{ runner.temp }}/forge-target
-      FORGE_TEST_STATE: ${{ runner.temp }}/forge-smoke
-      FORGE_BINARY: ${{ runner.temp }}/forge-install/bin/agent-forge
-      TMPDIR: ${{ runner.temp }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Isolate build and smoke state
+        run: |
+          {
+            printf 'CARGO_HOME=%s/forge-cargo\n' "$RUNNER_TEMP"
+            printf 'CARGO_TARGET_DIR=%s/forge-target\n' "$RUNNER_TEMP"
+            printf 'FORGE_TEST_STATE=%s/forge-smoke\n' "$RUNNER_TEMP"
+            printf 'FORGE_BINARY=%s/forge-install/bin/agent-forge\n' "$RUNNER_TEMP"
+            printf 'TMPDIR=%s\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
       - name: Offline publication safety
         env:
           FORGE_SOURCE_SCOPE: public
@@ -38,7 +42,7 @@ jobs:
       - name: Public system dependencies and Rust
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config curl python3
+          sudo apt-get install -y build-essential pkg-config curl python3 nodejs
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
       - name: Locked static checks
         run: |
@@ -46,6 +50,8 @@ jobs:
           cargo +1.100.0 clippy --locked --all-targets -j 1
       - name: Locked installed binary
         run: cargo +1.100.0 install --locked --path . --root "$RUNNER_TEMP/forge-install" -j 1
+      - name: Dashboard regressions
+        run: node --test tests/dashboard-*.test.cjs
       - name: Locked Rust tests
         run: cargo +1.100.0 test --locked --all-targets -j 1
       - name: Offline package notice inclusion

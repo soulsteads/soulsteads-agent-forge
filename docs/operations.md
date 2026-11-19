@@ -1,5 +1,7 @@
 # Operating Forge
 
+Use this guide to configure the service and operate it from the dashboard, CLI, HTTP API, or MCP. For a complete first run with no optional integrations, follow the [quick start](../README.md#quick-start).
+
 ## Install and run
 
 Use Linux, Rust 1.97 or later (via rustup), a C compiler (`cc`, needed to build the bundled SQLite and TLS crypto), and a dedicated, empty PostgreSQL database. Backup and restore also require `psql`, `pg_dump`, and `pg_restore` matching the database server's major version on `PATH`. The optional token snippet in [Operational CLI](#operational-cli) uses `jq`; any other private way to set `FORGE_TOKEN` works without it. See [tested preview path](support.md#tested-preview-path) for the exact versions exercised.
@@ -16,7 +18,7 @@ agent-forge serve --port 8110
 
 The home defaults to `$XDG_DATA_HOME/forge` (`~/.local/share/forge` when `XDG_DATA_HOME` is unset), not `./forge-home`; there is no default database, and `serve`, `backup` and `restore` refuse to start without one. Set database credentials privately when required (for example in `~/.pgpass` or a private environment). The connection must specify its host, port, user, and database. Do not put credentials in a committed configuration or command history. `serve` runs in the foreground; stop it with Ctrl-C or SIGTERM. Restarting it with the same home and database resumes the same work, runs and schedules.
 
-Open http://127.0.0.1:8110 (the default listener; see Configuration) and enter the scoped token from the private `config.json` in the Forge home (`actors.operator.token` in a new home). The listener accepts numeric loopback addresses only. The dashboard keeps its bearer token in tab memory. Every API operation, including reads, authenticates against the same actor policy used by MCP. Work definitions and run history belong to their actor.
+Open <http://127.0.0.1:8110> and enter the scoped token from the Forge home's private `config.json` (`actors.operator.token` in a new home). The listener accepts numeric loopback addresses only. Every API operation, including reads, requires authentication. Work definitions and run history belong to the actor that owns them.
 
 `config.json` contains the stable `home_id`, `actors`, `models`, `plugins`, and harness `runners`. An actor has a private `token`, `capabilities`, and allowed work `types`. Capabilities are `read`, `register`, `execute`, `schedule`, `reconcile`, `plugins` (install, enable, disable and uninstall [installed plugins](plugins.md)), `approve` (decide approval steps), `configure` (edit settings, model aliases and runner profiles) and `transfer` (start online backups). New homes grant all of them, and the `approval` work type, to `operator`; existing homes add them while the service is stopped. Configure these while the service is stopped; changes take effect on restart. Keep the home and its files private to the operating user.
 
@@ -30,7 +32,7 @@ Set `key_env` to the name of a private environment variable when authentication 
 
 ## Configuration
 
-Every runtime location and connection setting is resolved in one place with the precedence **command-line flag, then environment variable, then `config.json`, then default**. Nothing else in Forge hardcodes a database URL, port, directory or shell.
+For settings that support multiple sources, precedence is **command-line flag → environment variable → `config.json` → default**. The home is resolved before `config.json` is read.
 
 | Setting | Flag | Environment | `config.json` | Default |
 | --- | --- | --- | --- | --- |
@@ -111,7 +113,9 @@ agent-forge runs show RUN_ID                            # status, failed step + 
 
 `workflows run` prints the request key it used (generated when `--key` is omitted); reuse it with `--key` after a lost response. With `--wait` it exits nonzero unless the run ends `SUCCESS`. The older `work`, `runs list` and `runs inspect` commands keep printing raw JSON.
 
-Commands return JSON results on stdout, with sanitized errors on stderr and a nonzero exit status. List commands return the matching canonical snapshot collection; `plugins list` returns configured plugin descriptions and schemas. `work list` returns the first 100 scoped work identities; `work show ID` reads the full definition. `runs list` covers the latest 100 scoped runs. Run history and default inspection explicitly mark large nested values as summaries; exact effect/step selectors retrieve complete individual records. Requests/input files are bounded to 1 MiB, responses to 4 MiB, and redirects are refused. JSON files contain exactly one value; `-` reads stdin. A timeout may follow acceptance: inspect state and reuse the same key, never blindly submit a new operation.
+Commands that return structured results write JSON to stdout; the human-readable commands above support `--json` for scripts. Errors are sanitized on stderr and return a nonzero exit status. `work list` returns the first 100 scoped work identities; `work show ID` reads the full definition. `runs list` covers the latest 100 scoped runs. Run history and default inspection mark large nested values as summaries. Use an exact effect or step selector to retrieve a complete individual record.
+
+Requests and input files are limited to 1 MiB and responses to 4 MiB. Redirects are refused. JSON files contain one value; `-` reads stdin where supported. A timeout may follow acceptance: inspect state and reuse the same request key instead of submitting a new operation.
 
 | Command | Purpose |
 | --- | --- |
@@ -177,7 +181,18 @@ Cancellation is cooperative and cannot undo an external call. A timeout, crash, 
 
 ## Web dashboard
 
-Open the service URL and enter an actor token (kept in page memory only: no storage, cookie or URL). The default view is **Overview**: health, upcoming work and recent failures with links. **Runs** shows each run's steps, effects, outputs, approvals, bounded redacted **logs and diagnostics per step and attempt**, and for a harness/ACP step a **live transcript** with tool events (kind and status) and the **permission decision table** (kind, locations, decision, reason). An unresolved effect (`RECOVERY_REQUIRED`) shows a **reconcile** form: finding `applied` (API `completed`) or `not_applied`, an evidence note and the settled confirmation; nothing is replayed. **Agents** lists active and recent harness runs with cancel. **Approvals** lists and decides approval steps. **Schedules** shows run statistics. **Skills** is a read-only catalog. **Providers** and **Settings** edit `config.json` with the load-time validation, show the source of each effective value (flag, env, config or default) with secrets redacted, and say that a restart is required; the service has no restart operation. **Transfer** starts an online backup and lists archives; **restore is CLI-only** (`agent-forge --home NEW_HOME restore ARCHIVE`, into a new home and an empty database, with the service stopped). **Plugins** installs from a local path (dry run first), enables, disables, uninstalls and verifies, showing the service's refusals (active runs, references).
+Enter an actor token at the service URL. The dashboard keeps it in tab memory, not in storage, cookies, or the URL. Use the view that matches the task:
+
+| View | What to check or do |
+| --- | --- |
+| **Overview** | Service health, upcoming work, and links to recent failures |
+| **Runs** | Steps, outputs, effects, approvals, and bounded, redacted logs by step and attempt. Harness/ACP runs also expose a live transcript and permission decisions. |
+| **Agents**, **Approvals**, **Schedules** | Inspect or cancel harness runs, decide workflow approvals, and check schedule health and run history. |
+| **Skills**, **Plugins** | Read the skills catalog, or check, install, enable, disable, and uninstall trusted local plugins. Install and lifecycle refusals are shown in the dashboard. |
+| **Providers**, **Settings** | Edit validated configuration and see where each effective setting comes from, with secrets redacted. Restart Forge yourself to apply changes. |
+| **Transfer** | Start an online backup and list archives. [Restore](recovery.md#explicit-restore) is CLI-only. |
+
+For a run in `RECOVERY_REQUIRED`, **Runs** offers reconciliation. Record `applied` (API `completed`) or `not_applied` only after independently verifying the outcome. Provide an evidence note and confirm the effect has settled. Reconciliation does not replay the call.
 
 **Live events.** `POST /api/stream` with body `{"run_id":...}` and the `Authorization: Bearer` header returns server-sent events (`state`, `effect`, `approval`, and the harness `agent_message_chunk`, `tool_call`, `tool_call_update`, `permission` events, then `end`), each with a stable id, redacted and bounded. The token is never accepted in a URL. A connection lasts at most ten minutes; the dashboard falls back to polling the paginated `run_logs` if the stream is unavailable.
 

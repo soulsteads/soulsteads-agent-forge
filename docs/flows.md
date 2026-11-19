@@ -1,26 +1,12 @@
-# Deterministic workflows and tool-using agents
+# Workflows and tool-using agents
 
-`workflow` and `agent` are first-class work types. They use the same immutable registration, scoped API, CLI, MCP tools, dashboard, manual admission and native DBOS schedules as other work. A workflow defines ordered actions and data dependencies. An agent retains a real model conversation, validates model-selected tool calls, runs permitted configured plugins, feeds their actual results back to the model, and stops on a final answer or a bound.
+Choose a `workflow` when you can specify the steps and how data moves between them. Choose an `agent` when a configured model needs to decide which permitted tools to call. Both use immutable work definitions and can run on demand or on a native DBOS schedule. The dashboard, CLI, HTTP API, and MCP use the same actor policy.
 
-Existing homes must explicitly grant `workflow`/`agent` and every nested leaf type to their intended actors. New homes include the two core types, but never install or grant a plugin implicitly. Model aliases and trusted executable plugins are configured by the operator while the service is stopped. Definitions cannot supply executable paths, provider endpoints, credentials, actors or new tool authority.
+The actor needs access to the top-level work type and every nested work type it uses. New operator homes include `workflow` and `agent`, but never install or grant plugins automatically. Operators configure model aliases and trusted executables; a work definition cannot supply new endpoints, paths, credentials, actors, or tool permissions.
 
 ## Deterministic data flow
 
-Register this JSON using `agent-forge work register report --definition report.json` (or select `workflow` in the dashboard and enter its `input`):
-
-```json
-{
-  "type": "workflow",
-  "input": {
-    "params": {"task": "retained evidence"},
-    "steps": [
-      {"id": "produce", "action": {"type": "echo", "input": {"text": {"$ref": "/params/task"}}}},
-      {"id": "consume", "needs": ["produce"], "action": {"type": "echo", "input": {"text": "Observed: ${/steps/produce/output/text}"}}}
-    ],
-    "output": {"report": {"$ref": "/steps/consume/output/text"}}
-  }
-}
-```
+Start with [`report.json` in the quick start](../README.md#2-run-a-two-step-workflow). The first step, `produce`, reads `/params/task`. The second, `consume`, declares `needs: ["produce"]` and reads its output. To author the same definition in the dashboard, select `workflow` and enter the JSON object's `input`.
 
 `{"$ref":"/params/task"}` preserves the referenced JSON type. `${/steps/produce/output/text}` interpolates a JSON Pointer into a string. Scalars use their textual value; objects and arrays use JSON text. Referenced output is data and is never evaluated again as a template. The only reference roots are `/params` and `/steps/ID/output`; a step can read only earlier steps listed in its `needs`. The final output mapping can read all completed steps. Missing paths and invalid resolved input schemas fail before the corresponding action.
 

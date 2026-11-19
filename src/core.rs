@@ -394,7 +394,29 @@ impl Core {
         Ok(())
     }
     pub fn record(&self, actor: &str, action: &str, target: &str, detail: &str) -> Result<()> {
-        self.store.write(|c|{c.execute("INSERT INTO forge_audit(actor,action,target,detail,created) VALUES(?1,?2,?3,?4,?5)",params![actor,action,target,detail,Utc::now().timestamp_millis() as f64/1000.])?;Ok(())})?;
+        Self::record_at(
+            &self.store,
+            actor,
+            action,
+            target,
+            detail,
+            Utc::now().timestamp_millis(),
+        )
+    }
+
+    pub(crate) fn record_at(
+        store: &AdmissionStore,
+        actor: &str,
+        action: &str,
+        target: &str,
+        detail: &str,
+        created_ms: i64,
+    ) -> Result<()> {
+        store.write(|c| {
+            c.execute("INSERT INTO forge_audit(actor,action,target,detail,created) VALUES(?1,?2,?3,?4,?5)",
+                params![actor, action, target, detail, created_ms as f64 / 1000.])?;
+            Ok(())
+        })?;
         Ok(())
     }
     pub fn work(&self, actor: &str, id: &str) -> Result<Value> {
@@ -876,7 +898,7 @@ impl Core {
         {
             "External effect completed; replay prohibited. Inspect recorded output."
         } else if status == "ERROR" {
-            "Definite failure; inspect step timeline before explicit linked retry."
+            "Definite failure; inspect the step timeline and permitted actions."
         } else {
             ""
         };
@@ -908,7 +930,7 @@ impl Core {
         let mut run = json!({"run_id":id,"work_id":work["id"],"definition":crate::inspection::preview(&work["definition"]),"summary":true,"parent":iv["parameters"]["parent"]["object_id"],"created":row.map(|r|r.created_at),"status":if unknown&&!active{"RECOVERY_REQUIRED"}else{status},"output":row.and_then(|r|r.output.as_deref()).and_then(|v|serde_json::from_str::<Value>(v).ok()).or_else(||lost.as_ref().map(|l|l.output.clone()).filter(|o|!o.is_null())),"steps":steps,"logs":logs,"effect":effect,"effects":effects,"params":crate::inspection::preview(&self.invocation_params(&e)?),"error":row.filter(|r|r.error.is_some()).map(|_|"Execution failed; inspect scoped step timeline and effect state."),"diagnostic":diagnostic});
         // Additive operator projections; existing fields keep their meaning.
         run["type"] = work["definition"]["type"].clone();
-        run["actions"] = crate::run_views::actions(run["status"].as_str().unwrap_or(""));
+        run["actions"] = crate::run_views::actions(&run);
         if let Some(workflow) = crate::run_views::workflow_steps(&work["definition"], &run) {
             run["workflow"] = workflow;
         }
@@ -1360,17 +1382,17 @@ impl Core {
         } else {
             json!(TIMING_AUTHORITY)
         };
-        view["pending_edit"] = pending
-            .then(|| {
-                json!({
-                    "revision": revision,
-                    "schedule": cron_text,
-                    "cron_timezone": tz,
-                    "params": retained.params,
-                    "native_present": native.is_some(),
-                })
+        view["pending_edit"] = if pending {
+            json!({
+                "revision": revision,
+                "schedule": cron_text,
+                "cron_timezone": tz,
+                "params": retained.params,
+                "native_present": native.is_some(),
             })
-            .unwrap_or(Value::Null);
+        } else {
+            Value::Null
+        };
         view["actions"] = json!({"pause":status=="ACTIVE","resume":!pending && status=="PAUSED","delete":!pending && status!="DELETED","replace":true,"edit":!pending && status!="DELETED"});
         view["replacement"] = json!(REPLACEMENT);
         view["occurrences"] = history["occurrences"].clone();

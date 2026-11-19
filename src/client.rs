@@ -215,7 +215,7 @@ mod tests {
     fn invalid_configuration_is_refused() {
         for url in [
             "file:///private",
-            &format!("{}://{}:{}@localhost", "http", "fixture", "demo-password"),
+            &format!("{}://{}:{}@localhost", "http", "user", "password"),
             "http://localhost/?secret=x",
             "http://localhost/#token",
         ] {

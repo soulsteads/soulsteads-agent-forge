@@ -433,17 +433,45 @@ impl AdmissionStore {
         read(&connection, id)
     }
     pub fn verify(&self, envelope: &Envelope) -> Result<()> {
+        self.verify_home(envelope)?;
+        let connection = self.lock()?;
+        Self::verify_admission(&connection, envelope)
+    }
+
+    fn verify_home(&self, envelope: &Envelope) -> Result<()> {
         envelope.validate()?;
         if envelope.invocation.home_id() != self.home_id {
             return Err(invalid("cross-home invocation verification refused"));
         }
-        let entry = self
-            .inspect(&envelope.dbos_id)?
+        Ok(())
+    }
+
+    fn verify_admission(connection: &Connection, envelope: &Envelope) -> Result<()> {
+        let entry = read(connection, &envelope.dbos_id)?
             .ok_or_else(|| invalid("invocation lacks canonical Forge admission"))?;
         if &entry.envelope != envelope {
             return Err(invalid("invocation differs from canonical Forge admission"));
         }
         Ok(())
+    }
+
+    /// Read a verified invocation without waiting for a consistency cut.
+    /// Busy is distinct from an absent fence and from an authority error.
+    pub(crate) fn try_verified_read<T>(
+        &self,
+        envelope: &Envelope,
+        read: impl FnOnce(&Connection) -> Result<T>,
+    ) -> Result<Option<T>> {
+        self.verify_home(envelope)?;
+        let connection = match self.connection.try_lock() {
+            Ok(connection) => connection,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                return Err(invalid("admission mutex poisoned"));
+            }
+        };
+        Self::verify_admission(&connection, envelope)?;
+        Ok(Some(read(&connection)?))
     }
     pub fn begin_submission(&self, id: &str) -> Result<SubmissionAttempt> {
         self.write(|connection|{

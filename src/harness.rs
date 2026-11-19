@@ -2,6 +2,7 @@
 //! owns its session, and Forge owns admission, scope, receipts and output validation.
 //! Only operator-approved runner profiles can name an executable; workload
 //! definitions and inputs select a profile by name and can never supply commands.
+use crate::flow_effects::{HarnessAuthority, HarnessDenial, wait_for_authority_retry};
 use crate::{
     containment::{self, Contained},
     core::{Core, Invalid, hash},
@@ -510,6 +511,16 @@ impl RunnerProfile {
             bail!("pi requires provider and model together");
         }
         if self.adapter == "pi" {
+            if self
+                .env_passthrough
+                .iter()
+                .flatten()
+                .any(|k| k == PI_AGENT_DIR_ENV)
+            {
+                bail!(
+                    "{PI_AGENT_DIR_ENV} must be a static runner env entry so its bind path can be validated"
+                );
+            }
             if !self.allow_unconfined {
                 bail!(
                     "pi cannot confine file access to the workspace and can read provider credentials in its agent directory; set allow_unconfined to acknowledge this"
@@ -1230,6 +1241,120 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Check immediately before polling the effect. A Busy sample wakes on a
+/// bounded timer without touching the writer or losing its accepted prefix.
+async fn poll_authorized<T>(
+    deadline: Instant,
+    authorize: impl Fn() -> std::io::Result<()>,
+    mut effect: impl FnMut(&mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<T>>,
+) -> std::io::Result<T> {
+    use std::task::Poll;
+
+    tokio::time::timeout_at(deadline.into(), async {
+        loop {
+            let result = std::future::poll_fn(|cx| match authorize() {
+                Ok(()) if Instant::now() < deadline => effect(cx).map(Some),
+                Ok(()) => Poll::Ready(Some(Err(std::io::Error::other(HarnessDenial::TimedOut)))),
+                Err(error) if io_denial(&error) == Some(HarnessDenial::Busy) => Poll::Ready(None),
+                Err(error) => Poll::Ready(Some(Err(error))),
+            })
+            .await;
+            if let Some(result) = result {
+                return result;
+            }
+            wait_for_authority_retry(deadline).await;
+        }
+    })
+    .await
+    .map_err(|_| std::io::Error::other(HarnessDenial::TimedOut))?
+}
+
+fn io_denial(error: &std::io::Error) -> Option<HarnessDenial> {
+    error.get_ref()?.downcast_ref::<HarnessDenial>().copied()
+}
+
+async fn write_authorized(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    mut bytes: &[u8],
+    deadline: Instant,
+    authorize: impl Fn() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    while !bytes.is_empty() {
+        let count = poll_authorized(deadline, &authorize, |cx| {
+            std::pin::Pin::new(&mut *writer).poll_write(cx, bytes)
+        })
+        .await?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        bytes = &bytes[count..];
+    }
+    Ok(())
+}
+
+async fn flush_authorized(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    deadline: Instant,
+    authorize: impl Fn() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    poll_authorized(deadline, authorize, |cx| {
+        std::pin::Pin::new(&mut *writer).poll_flush(cx)
+    })
+    .await
+}
+
+enum PromptDelivery {
+    Argument,
+    StdinConfirmed,
+}
+
+/// Borrow the controller's pipe until the complete prompt and EOF are admitted.
+/// A failed or cancelled write leaves the handle with the process controller.
+async fn feed_one_shot(
+    stdin: &mut Option<impl tokio::io::AsyncWrite + Unpin>,
+    prompt: Option<&str>,
+    audited: tokio::sync::oneshot::Receiver<()>,
+    deadline: Instant,
+    authorize: impl Fn() -> std::io::Result<()>,
+) -> Result<PromptDelivery> {
+    let released = audited.await.is_ok();
+    let delivery = if let Some(text) = prompt {
+        anyhow::ensure!(
+            released,
+            "harness stdin prompt withheld without its launch audit"
+        );
+        let writer = stdin.as_mut().context("harness stdin missing")?;
+        write_authorized(writer, text.as_bytes(), deadline, &authorize)
+            .await
+            .map_err(|error| {
+                stdin_delivery_error(error, "harness stdin prompt write did not complete")
+            })?;
+        PromptDelivery::StdinConfirmed
+    } else {
+        PromptDelivery::Argument
+    };
+    // Unix ChildStdin shutdown is a no-op. The last handle delivers EOF on
+    // drop, including for the empty pipe on an argv launch.
+    if released {
+        poll_authorized(deadline, authorize, |_| {
+            drop(stdin.take());
+            std::task::Poll::Ready(Ok(()))
+        })
+        .await
+        .map_err(|error| stdin_delivery_error(error, "harness stdin close was withheld"))?;
+    }
+    Ok(delivery)
+}
+
+fn stdin_delivery_error(error: std::io::Error, context: &'static str) -> anyhow::Error {
+    if let Some(denial) = io_denial(&error) {
+        return denial.into();
+    }
+    // Avoid echoing data from the writer and keep delivery loss distinct from
+    // authority loss, whose typed reason selects the attempt state.
+    anyhow::anyhow!("{context}; effect outcome is unknown and requires reconciliation")
+}
+
 /// Bounded manifest. Never fails a validated run: overflow and unreadable entries are
 /// recorded as explicit manifest facts (`truncated`, `oversize`, `unreadable`).
 fn artifacts(workspace: &Path, secrets: &[String]) -> Value {
@@ -1399,6 +1524,21 @@ impl Core {
         serde_json::from_slice(&bytes).ok()
     }
 
+    pub(crate) fn record_harness_denial(
+        &self,
+        e: &Envelope,
+        slot: &str,
+        denial: HarnessDenial,
+    ) -> Result<()> {
+        let id = Self::harness_invocation(&e.dbos_id, slot, 1);
+        let path = self.harness_dir(&id).join("attempt.json");
+        let mut attempt: Value = serde_json::from_slice(&safety::read_private(&path)?)?;
+        attempt["state"] = json!(denial.state());
+        attempt["result"] = json!("rejected");
+        attempt["failure"] = json!(denial.to_string());
+        write_private(&path, attempt.to_string().as_bytes())
+    }
+
     /// Everything that can be refused before a process exists, checked before any intent row.
     pub(crate) async fn harness_preflight(&self, input: &Value) -> Result<()> {
         let profile = self.validate_harness(input)?.clone();
@@ -1431,7 +1571,7 @@ impl Core {
         e: &Envelope,
         slot: &str,
         action: &Value,
-    ) -> Result<Value> {
+    ) -> Result<(Value, HarnessAuthority)> {
         let input = &action["input"];
         let profile = self.validate_harness(input)?.clone();
         let name = input["profile"].as_str().unwrap_or("").to_owned();
@@ -1500,6 +1640,9 @@ impl Core {
             attempt["config_sha256"] = json!(digest);
         }
         write_private(&dir.join("attempt.json"), attempt.to_string().as_bytes())?;
+        // Declare the pipe before containment so its fallback teardown runs
+        // first even if this future is dropped or an early return unwinds it.
+        let mut one_shot_stdin;
         let mut contained = Contained::create(containment_mode(&profile.containment), &invocation)
             .map_err(|_| {
                 anyhow::anyhow!("harness containment unavailable; refused before dispatch")
@@ -1527,9 +1670,19 @@ impl Core {
             .kill_on_drop(true);
         command.as_std_mut().process_group(0);
         contained.prepare(command.as_std_mut());
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(_) => {
+        let deadline = Instant::now() + Duration::from_secs(profile.timeout_seconds);
+        let authority = HarnessAuthority::new(self, e, deadline);
+        // Even a transport that receives its prompt later can execute at startup.
+        // Make the fence check and the spawn handshake one admission operation.
+        let mut child = match authority.spawn(&mut command).await {
+            Ok(Ok(child)) => child,
+            Err(denial) => {
+                contained.cleanup()?;
+                contained.disarm();
+                self.record_harness_denial(e, slot, denial)?;
+                return Err(denial.into());
+            }
+            Ok(Err(_)) => {
                 contained.kill(false)?;
                 contained.cleanup()?;
                 contained.disarm();
@@ -1540,14 +1693,34 @@ impl Core {
         };
         let pid = child.id().context("harness pid missing")?;
         contained.set_root(pid);
+        one_shot_stdin = Some(child.stdin.take().context("harness stdin missing")?);
         attempt["state"] = json!("running");
         attempt["pid"] = json!(pid);
         attempt["pid_start_ticks"] = json!(containment::start_ticks(pid));
-        attempt["started_ms"] = json!(chrono::Utc::now().timestamp_millis());
+        let launched_ms = chrono::Utc::now().timestamp_millis();
+        attempt["started_ms"] = json!(launched_ms);
         write_private(&dir.join("attempt.json"), attempt.to_string().as_bytes())?;
-        self.record("runtime", "harness_launched", &e.dbos_id, &invocation)?;
+        // Keep the launch audit ordered before the finish audit, but do not let
+        // the admission connection hold the live process monitor hostage.
+        let mut launch_audit = Some(tokio::task::spawn_blocking({
+            let store = self.store.clone();
+            let run = e.dbos_id.clone();
+            let invocation = invocation.clone();
+            move || {
+                Self::record_at(
+                    &store,
+                    "runtime",
+                    "harness_launched",
+                    &run,
+                    &invocation,
+                    launched_ms,
+                )
+            }
+        }));
+        let mut audit_error = None;
+        let (start_io, audited) = tokio::sync::oneshot::channel();
+        let mut start_io = Some(start_io);
 
-        let mut stdin = child.stdin.take().context("harness stdin missing")?;
         let limit = profile.max_output_bytes;
         let exceeded = Arc::new(AtomicBool::new(false));
         let mut out = child.stdout.take().context("harness stdout missing")?;
@@ -1565,25 +1738,25 @@ impl Core {
             cancel: cancel_rx,
             exceeded: exceeded.clone(),
             observed: observed.clone(),
+            authority: authority.clone(),
         };
         let mut driver: Option<tokio::task::JoinHandle<Result<acp::Driven>>> = None;
         let mut out_task = None;
+        let mut feed_audit = None;
         if driven_transport {
             let transport = plan.transport;
+            let stdin = one_shot_stdin.take().expect("harness stdin");
             driver = Some(tokio::spawn(async move {
+                audited
+                    .await
+                    .context("harness prompt withheld without its launch audit")?;
                 match transport {
                     Transport::PiRpc => pi::drive(stdin, out, drive_args).await,
                     _ => acp::drive(stdin, out, drive_args).await,
                 }
             }));
         } else {
-            let feed = plan.stdin.clone();
-            tokio::spawn(async move {
-                if let Some(text) = feed {
-                    let _ = stdin.write_all(text.as_bytes()).await;
-                }
-                let _ = stdin.shutdown().await;
-            });
+            feed_audit = Some(audited);
             let flag = exceeded.clone();
             out_task = Some(tokio::spawn(async move {
                 let mut buffer = Vec::new();
@@ -1608,6 +1781,21 @@ impl Core {
                 (buffer, eof)
             }));
         }
+        // Poll the same feeder alongside the child and the deadline. It borrows
+        // the pipe, and cancellation of a select arm cannot drop its handle or
+        // discard the cursor of a partial write.
+        let mut feeding = Box::pin(async {
+            feed_one_shot(
+                &mut one_shot_stdin,
+                plan.stdin.as_deref(),
+                feed_audit.expect("one-shot launch audit"),
+                deadline,
+                || authority.check().map_err(std::io::Error::other),
+            )
+            .await
+        });
+        let mut prompt_delivery = None;
+        let mut feed_error = None;
         let err_task = tokio::spawn(async move {
             let mut buffer = Vec::new();
             let mut chunk = [0u8; 8192];
@@ -1622,24 +1810,70 @@ impl Core {
             }
             buffer
         });
-        let deadline = Instant::now() + Duration::from_secs(profile.timeout_seconds);
         let mut ticker = tokio::time::interval(Duration::from_millis(300));
         let outcome: &str;
         let mut exit = None;
         let mut reaped = false;
         let mut turn: Option<Result<acp::Driven>> = None;
         loop {
+            if launch_audit.is_none() && start_io.is_some() {
+                match authority.check() {
+                    Ok(()) => {
+                        if let Some(start) = start_io.take() {
+                            let _ = start.send(());
+                        }
+                    }
+                    Err(HarnessDenial::Busy) => {}
+                    Err(denial) => {
+                        outcome = denial.state();
+                        break;
+                    }
+                }
+            }
             tokio::select! {
+                _ = tokio::time::sleep_until(deadline.into()) => {
+                    outcome = "timed_out";
+                    break;
+                }
+                result = async { launch_audit.as_mut().expect("launch audit").await }, if launch_audit.is_some() => {
+                    launch_audit = None;
+                    if let Err(error) = result.unwrap_or_else(|error| Err(error.into())) {
+                        audit_error = Some(error);
+                        outcome = "audit_failed";
+                        break;
+                    }
+                }
+                delivery = &mut feeding, if !driven_transport && prompt_delivery.is_none() => {
+                    match delivery {
+                        Ok(delivered) => prompt_delivery = Some(delivered),
+                        Err(error) => {
+                            outcome = error.downcast_ref::<HarnessDenial>().copied()
+                                .map_or("protocol_error", HarnessDenial::state);
+                            feed_error = Some(error);
+                            break;
+                        }
+                    }
+                }
                 status = child.wait() => {
                     exit = status.ok();
                     reaped = true;
-                    outcome = "exited";
+                    outcome = match authority.check() {
+                        Ok(()) | Err(HarnessDenial::Busy) => "exited",
+                        Err(denial) => denial.state(),
+                    };
                     break;
                 }
                 finished = async { driver.as_mut().expect("driver").await }, if driver.is_some() => {
                     driver = None;
                     let finished = finished.unwrap_or_else(|_| Err(anyhow::anyhow!("ACP driver task failed")));
-                    outcome = if finished.is_ok() { "turn_completed" } else { "protocol_error" };
+                    outcome = match authority.check() {
+                        Ok(()) | Err(HarnessDenial::Busy) => match &finished {
+                            Ok(_) => "turn_completed",
+                            Err(error) => error.downcast_ref::<HarnessDenial>().copied()
+                                .map_or("protocol_error", HarnessDenial::state),
+                        },
+                        Err(denial) => denial.state(),
+                    };
                     turn = Some(finished);
                     break;
                 }
@@ -1648,18 +1882,23 @@ impl Core {
                         outcome = "output_exceeded";
                         break;
                     }
-                    if Instant::now() >= deadline {
-                        outcome = "timed_out";
-                        break;
-                    }
-                    if self.flow_fenced(e).unwrap_or(true) {
-                        outcome = "cancelled";
+                    if let Err(denial) = authority.check()
+                        && denial != HarnessDenial::Busy
+                    {
+                        outcome = denial.state();
                         break;
                     }
                 }
             }
         }
-        if driven_transport && matches!(outcome, "timed_out" | "cancelled" | "output_exceeded") {
+        drop(feeding);
+        drop(start_io);
+        if driven_transport
+            && matches!(
+                outcome,
+                "timed_out" | "cancelled" | "output_exceeded" | "authority_unavailable"
+            )
+        {
             // Ask the agent to cancel its turn, then give the frame time to reach it
             // before the contained tree is killed. The effect stays uncertain either way.
             let _ = cancel_tx.send(true);
@@ -1682,6 +1921,7 @@ impl Core {
         }
         contained.cleanup()?;
         contained.disarm();
+        drop(one_shot_stdin);
         let (stdout, stdout_eof) = match out_task {
             Some(task) => tokio::time::timeout(Duration::from_secs(5), task)
                 .await
@@ -1726,6 +1966,14 @@ impl Core {
             attempt["agent"] = seen.agent;
         }
         write_private(&dir.join("attempt.json"), attempt.to_string().as_bytes())?;
+        // Once the process and descendants are gone it is safe to wait for
+        // the store. Never accept an output without the launch audit.
+        if let Some(audit) = launch_audit {
+            audit.await??;
+        }
+        if let Some(error) = audit_error {
+            return Err(error.context("harness launch audit failed; process cleaned up"));
+        }
         self.record(
             "runtime",
             "harness_finished",
@@ -1733,6 +1981,9 @@ impl Core {
             &format!("{invocation}:{outcome}"),
         )?;
         let verdict: Result<Value> = async {
+            if let Some(error) = feed_error {
+                return Err(error);
+            }
             if !matches!(outcome, "exited" | "turn_completed") {
                 if let Some(Err(error)) = &turn {
                     attempt["protocol_error"] = json!(scrub(&clipped(&error.to_string(), 500), &secrets));
@@ -1749,6 +2000,20 @@ impl Core {
                 }
                 bail!("harness exited nonzero");
             }
+            if !driven_transport {
+                match (plan.stdin.is_some(), prompt_delivery) {
+                    (true, Some(PromptDelivery::StdinConfirmed)) => {
+                        attempt["prompt_delivery"] = json!("stdin_confirmed");
+                    }
+                    // The argv prompt was admitted before spawn, independently
+                    // of whether the child waited for EOF on its empty stdin.
+                    (false, _) => {
+                        attempt["prompt_delivery"] = json!("argv");
+                    }
+                    _ => bail!("harness prompt delivery was not confirmed"),
+                }
+            }
+            authority.wait().await?;
             let parsed = if driven_transport {
                 let driven = match turn {
                     Some(Ok(driven)) => driven,
@@ -1825,18 +2090,22 @@ impl Core {
                 attempt["native_run_id"] = json!(parsed.native_run_id);
                 attempt["session_id"] = json!(parsed.session_id);
             }
+            authority.wait().await?;
             Ok(output)
         }
         .await;
         match &verdict {
             Ok(_) => attempt["result"] = json!("validated"),
             Err(error) => {
+                if let Some(denial) = error.downcast_ref::<HarnessDenial>() {
+                    attempt["state"] = json!(denial.state());
+                }
                 attempt["result"] = json!("rejected");
                 attempt["failure"] = json!(scrub(&error.to_string(), &secrets));
             }
         }
         write_private(&dir.join("attempt.json"), attempt.to_string().as_bytes())?;
-        verdict
+        verdict.map(|output| (output, authority))
     }
 
     /// Startup reconciliation of attempts left by a previous Forge process. Policy:
@@ -1881,6 +2150,8 @@ impl Core {
                             | "cancelled"
                             | "output_exceeded"
                             | "launch_failed"
+                            | "audit_failed"
+                            | "authority_unavailable"
                             | "orphan_terminated"
                             | "process_lost"
                             | "interrupted_before_launch"
@@ -1970,6 +2241,317 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture_deadline() -> Instant {
+        Instant::now() + Duration::from_secs(2)
+    }
+
+    #[tokio::test]
+    async fn successor_failed_stdin_admission_retains_controller_pipe() {
+        // One short write, then the gate refuses. A duplex stream and inert
+        // bytes exercise ownership without starting a child or an action.
+        for capacity in [1, 64] {
+            let (writer, mut reader) = tokio::io::duplex(capacity);
+            let mut owned = Some(writer);
+            let (audit, audited) = tokio::sync::oneshot::channel();
+            audit.send(()).unwrap();
+            let checks = std::cell::Cell::new(0);
+            let result = feed_one_shot(
+                &mut owned,
+                Some("inert"),
+                audited,
+                fixture_deadline(),
+                || {
+                    checks.set(checks.get() + 1);
+                    if checks.get() == 1 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::other(HarnessDenial::Fenced))
+                    }
+                },
+            )
+            .await;
+            assert!(
+                matches!(result, Err(error) if error.downcast_ref::<HarnessDenial>() == Some(&HarnessDenial::Fenced))
+            );
+            assert!(
+                owned.is_some(),
+                "failed delivery must retain the pipe for cleanup"
+            );
+            let mut bytes = vec![0; capacity.min(5)];
+            reader.read_exact(&mut bytes).await.unwrap();
+            assert_eq!(bytes, b"inert"[..bytes.len()]);
+            let mut pending_read = Box::pin(reader.read(&mut bytes));
+            assert!(
+                futures::poll!(&mut pending_read).is_pending(),
+                "EOF was withheld"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn successor_cancelled_stdin_future_retains_controller_pipe() {
+        let (writer, _reader) = tokio::io::duplex(1);
+        let mut owned = Some(writer);
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        audit.send(()).unwrap();
+        let mut pending = Box::pin(feed_one_shot(
+            &mut owned,
+            Some("inert"),
+            audited,
+            fixture_deadline(),
+            || Ok(()),
+        ));
+        assert!(futures::poll!(&mut pending).is_pending());
+        drop(pending);
+        assert!(
+            owned.is_some(),
+            "a cancelled write must retain the pipe for cleanup"
+        );
+    }
+
+    #[tokio::test]
+    async fn renewal_stdin_delivery_requires_audit_and_complete_write() {
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        drop(audit);
+        let mut writer = Some(tokio::io::sink());
+        assert!(
+            feed_one_shot(
+                &mut writer,
+                Some("ordinary prompt"),
+                audited,
+                fixture_deadline(),
+                || Ok(())
+            )
+            .await
+            .is_err()
+        );
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        audit.send(()).unwrap();
+        let (writer, reader) = tokio::io::duplex(64);
+        let mut writer = Some(writer);
+        drop(reader);
+        assert!(
+            feed_one_shot(
+                &mut writer,
+                Some("ordinary prompt"),
+                audited,
+                fixture_deadline(),
+                || Ok(())
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn renewal_prompt_delivery_distinguishes_eof_authority_and_argv() {
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        audit.send(()).unwrap();
+        let (writer, mut reader) = tokio::io::duplex(64);
+        let mut writer = Some(writer);
+        assert!(matches!(
+            feed_one_shot(
+                &mut writer,
+                Some("ordinary prompt"),
+                audited,
+                fixture_deadline(),
+                || Ok(())
+            )
+            .await
+            .unwrap(),
+            PromptDelivery::StdinConfirmed
+        ));
+        assert!(writer.is_none());
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await.unwrap();
+        assert_eq!(bytes, b"ordinary prompt");
+
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        audit.send(()).unwrap();
+        let check = std::cell::Cell::new(false);
+        let failure = feed_one_shot(
+            &mut Some(tokio::io::sink()),
+            Some("ordinary prompt"),
+            audited,
+            fixture_deadline(),
+            || {
+                if check.replace(true) {
+                    Err(std::io::Error::other(HarnessDenial::Fenced))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .await;
+        assert!(
+            matches!(failure, Err(error) if error.downcast_ref::<HarnessDenial>() == Some(&HarnessDenial::Fenced))
+        );
+
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        drop(audit);
+        assert!(matches!(
+            feed_one_shot(
+                &mut Some(tokio::io::sink()),
+                None,
+                audited,
+                fixture_deadline(),
+                || panic!("argv does not write stdin")
+            )
+            .await
+            .unwrap(),
+            PromptDelivery::Argument
+        ));
+    }
+
+    #[tokio::test]
+    async fn pending_prompt_write_rechecks_authority_before_releasing_bytes() {
+        use crate::flow_effects::authorize_harness_ready;
+        use std::{
+            cell::{Cell, RefCell},
+            io,
+            pin::Pin,
+            task::{Context, Poll},
+            time::{Duration, Instant},
+        };
+        struct Recorder<'a> {
+            pending_once: bool,
+            accepted: &'a RefCell<Vec<u8>>,
+        }
+        impl tokio::io::AsyncWrite for Recorder<'_> {
+            fn poll_write(
+                mut self: Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                data: &[u8],
+            ) -> Poll<io::Result<usize>> {
+                if std::mem::take(&mut self.pending_once) {
+                    return Poll::Pending;
+                }
+                self.accepted.borrow_mut().extend_from_slice(data);
+                Poll::Ready(Ok(data.len()))
+            }
+            fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+            fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(1);
+        let now = Cell::new(start);
+        let authorize =
+            || authorize_harness_ready(deadline, now.get(), Some(false)).map_err(io::Error::other);
+        let accepted = RefCell::new(Vec::new());
+        let mut recorder = Recorder {
+            pending_once: true,
+            accepted: &accepted,
+        };
+        let mut writing = Box::pin(write_authorized(
+            &mut recorder,
+            b"inert",
+            deadline,
+            authorize,
+        ));
+        assert!(futures::poll!(&mut writing).is_pending());
+        now.set(deadline);
+        assert!(writing.await.unwrap_err().to_string().contains("timed_out"));
+        assert!(accepted.borrow().is_empty());
+        now.set(start);
+        write_authorized(&mut recorder, b"inert", deadline, authorize)
+            .await
+            .unwrap();
+        assert_eq!(*accepted.borrow(), b"inert");
+    }
+
+    #[tokio::test]
+    async fn contention_preserves_partial_stdin_cursor_and_eof() {
+        let (writer, mut reader) = tokio::io::duplex(2);
+        let mut owned = Some(writer);
+        let (audit, audited) = tokio::sync::oneshot::channel();
+        audit.send(()).unwrap();
+        let first = std::cell::Cell::new(true);
+        let busy = std::cell::Cell::new(true);
+        let mut delivery = Box::pin(feed_one_shot(
+            &mut owned,
+            Some("inert"),
+            audited,
+            fixture_deadline(),
+            || {
+                if first.replace(false) || !busy.get() {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::other(HarnessDenial::Busy))
+                }
+            },
+        ));
+        assert!(
+            futures::poll!(&mut delivery).is_pending(),
+            "busy must suspend the partial write"
+        );
+        let mut first_bytes = [0; 2];
+        reader.read_exact(&mut first_bytes).await.unwrap();
+        assert_eq!(&first_bytes, b"in");
+        assert!(futures::poll!(std::pin::pin!(reader.read(&mut first_bytes))).is_pending());
+        busy.set(false);
+        let mut remainder = Vec::new();
+        let (delivered, read) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(delivery, reader.read_to_end(&mut remainder))
+        })
+        .await
+        .unwrap();
+        assert!(matches!(delivered.unwrap(), PromptDelivery::StdinConfirmed));
+        assert_eq!(read.unwrap(), 3);
+        assert_eq!(remainder, b"ert");
+        assert!(owned.is_none());
+    }
+
+    #[tokio::test]
+    async fn contention_then_authority_closure_retains_stdin_without_eof() {
+        for terminal in [HarnessDenial::Fenced, HarnessDenial::TimedOut] {
+            for capacity in [1, 8] {
+                let (writer, mut reader) = tokio::io::duplex(capacity);
+                let mut owned = Some(writer);
+                let (audit, audited) = tokio::sync::oneshot::channel();
+                audit.send(()).unwrap();
+                let first = std::cell::Cell::new(true);
+                let state = std::cell::Cell::new(HarnessDenial::Busy);
+                let mut delivery = Box::pin(feed_one_shot(
+                    &mut owned,
+                    Some("inert"),
+                    audited,
+                    fixture_deadline(),
+                    || {
+                        if first.replace(false) {
+                            Ok(())
+                        } else {
+                            Err(std::io::Error::other(state.get()))
+                        }
+                    },
+                ));
+                assert!(
+                    futures::poll!(&mut delivery).is_pending(),
+                    "busy must withhold write or EOF"
+                );
+                state.set(terminal);
+                let result = tokio::time::timeout(Duration::from_secs(1), delivery)
+                    .await
+                    .unwrap();
+                assert!(
+                    matches!(result, Err(error) if error.downcast_ref::<HarnessDenial>() == Some(&terminal))
+                );
+                assert!(owned.is_some());
+                let mut accepted = vec![0; capacity.min(5)];
+                reader.read_exact(&mut accepted).await.unwrap();
+                assert_eq!(accepted, b"inert"[..accepted.len()]);
+                assert!(
+                    futures::poll!(std::pin::pin!(reader.read(&mut accepted))).is_pending(),
+                    "no late bytes or EOF"
+                );
+            }
+        }
+    }
+
     #[test]
     fn artifact_links_and_wide_or_deep_directories_are_bounded() {
         let links = tempfile::tempdir().unwrap();
@@ -2014,13 +2596,11 @@ mod tests {
     }
     #[test]
     fn scrubbing_removes_configured_and_token_shaped_secrets() {
-        let configured = "configured-fixture-value";
-        let synthetic_token = format!("sk-abc{}", "x".repeat(32));
         let out = scrub(
-            &format!("key={configured} and {synthetic_token} ok"),
-            &[configured.into()],
+            &format!("key=hunter2hunter2 and sk-{} ok", "abc".repeat(12)),
+            &["hunter2hunter2".into()],
         );
-        assert!(!out.contains(configured) && !out.contains("sk-abc") && out.contains("ok"));
+        assert!(!out.contains("hunter2") && !out.contains("sk-abc") && out.contains("ok"));
     }
     #[test]
     fn profiles_reject_authority_widening() {
@@ -2049,12 +2629,12 @@ mod secret_env_tests {
     #[test]
     fn literal_secret_values_are_detected_but_ordinary_static_values_are_not() {
         let p = profile(
-            serde_json::json!({"HOME":"/tmp/forge-fixture/oc","OPENCODE_CONFIG":"/a/b/opencode.json","LANG":"C.UTF-8",
+            serde_json::json!({"HOME":"/var/lib/forge-fixture/oc","OPENCODE_CONFIG":"/a/b/opencode.json","LANG":"C.UTF-8",
             "GREETING":"hello world","MODE":"strict"}),
         );
         assert!(p.literal_secret_env().is_empty());
         let p = profile(
-            serde_json::json!({"SNEAKY":format!("sk-abc{}", "x".repeat(32)),"OTHER":"ab12cd34ef56ab12cd34ef56ab12cd34","H":"Bearer abc"}),
+            serde_json::json!({"SNEAKY":format!("sk-{}", "synthetic".repeat(4)),"OTHER":"ab12cd34ef56ab12cd34ef56ab12cd34","H":"Bearer abc"}),
         );
         let mut found = p.literal_secret_env();
         found.sort();

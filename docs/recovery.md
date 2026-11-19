@@ -1,6 +1,8 @@
 # Recovery and backup
 
-The private application home and its dedicated PostgreSQL database form one recovery unit. Keep the original executor stopped during backup and restore. Never run a restored copy alongside the original: they retain the same workflow, schedule, and external-effect identities.
+Back up the **Forge home and its dedicated PostgreSQL database together**. The home contains configuration, local admissions, and effect receipts; PostgreSQL contains DBOS execution state. An offline backup requires Forge to be stopped. If you need to keep the source running during backup, use the [online backup command](#online-backup-consistency-and-lost-runs).
+
+Never run a restored executor alongside its source. Both retain the same workflow, schedule, and external-effect identities.
 
 ## Offline backup
 
@@ -26,7 +28,13 @@ Provide a new, nonexistent home path and an empty dedicated database on the same
 agent-forge --home ./restored-home restore ./forge-backup
 ```
 
-The archive keeps the home's own layout. Backup requires `state`, `outputs`, `effect_locks`, `harness`, `plugins`, `dbos_identity` and `dbos_admission` to lie inside the home (a relocated `paths` entry that is absolute and outside it is refused rather than half-saved; `logs` and anything else outside the home need their own recovery procedure (the backup command and `backup_start` name an outside `logs` or `cache` in a `note:` / `notes` field instead of skipping it silently), and `cache` and the unfinished-install `plugins/staging` directory are never archived). Installed plugin releases travel with the home and their registry rows with the admission store: backup refuses to archive a release whose bytes no longer match its manifest digests, and restore verifies every release against its own manifest and restores its read-only modes before anything can run. Restore lays the new home out from the archived `config.json` `paths` (relative values resolve against the new home) and takes the database from the flag, environment or the archived `database` section. A literal archived `database.url` points at the source database, so supply the destination with `--database-url` or `FORGE_DATABASE_URL`, or prefer `database.url_env` so the same configuration works for both. Both commands use exactly the database URL that `serve` would.
+The archive preserves the home's layout. Check what will move before restoring:
+
+- **Required inside the home:** `state`, `outputs`, `effect_locks`, `harness`, `plugins`, `dbos_identity`, and `dbos_admission`. Backup refuses an outside path for any of these instead of creating a partial archive.
+- **Not included:** `cache`, unfinished installs in `plugins/staging`, and files outside the home. Backup reports external `logs` or `cache` paths; preserve external files separately if you need them.
+- **Installed plugins:** releases are copied with the home and registry rows with the admission store. Backup refuses changed release bytes. Restore rechecks each manifest digest and restores read-only release permissions.
+
+Restore reads `paths` from the archived `config.json`; relative paths now resolve against the new home. Database resolution is the same as for `serve`. **An archived literal `database.url` still points at the source.** Select the empty destination explicitly, preferably through a private `FORGE_DATABASE_URL`. If the archived config uses `database.url_env`, supply the destination through that named variable instead.
 
 Restore verifies the manifest, validates SQLite identity and integrity, copies and verifies the home, and stages a verified private database dump. PostgreSQL restoration uses one transaction. The destination home is sealed to its exact new path and database before the completion marker is cleared. The archive is preserved.
 

@@ -320,7 +320,7 @@ async fn authority_errors_name_the_missing_capability_or_type_and_point_to_docto
 #[tokio::test]
 async fn provider_set_refuses_a_literal_secret_in_runner_env() {
     let (_home, core) = core_with_runner();
-    let bad = json!({"adapter":"codex","executable":"/usr/bin/true","permission_mode":"read-only","env":{"MY_VAR":format!("sk-abcdef{}", "x".repeat(32))}});
+    let bad = json!({"adapter":"codex","executable":"/usr/bin/true","permission_mode":"read-only","env":{"MY_VAR":format!("sk-{}", ["abcdef", &"synthetic".repeat(4)].concat())}});
     let text = core
         .provider_set("operator", "runner", "leaky", &bad)
         .unwrap_err()
@@ -341,7 +341,7 @@ async fn provider_set_refuses_a_literal_secret_in_runner_env() {
 fn redaction_covers_actor_tokens_and_token_shaped_strings_in_inspect_projections() {
     let (_home, core) = core_with_runner();
     let token = core.policy.actors["operator"].token.clone();
-    let run = json!({"output":{"echo":format!("token {token} and sk-abcdef{}", "x".repeat(32))},"steps":[{"output":format!("x {token}")}]});
+    let run = json!({"output":{"echo":format!("token {token} and sk-{}", ["abcdef", &"synthetic".repeat(4)].concat())},"steps":[{"output":format!("x {token}")}]});
     let shown = core.redact_value(&run).to_string();
     assert!(
         !shown.contains(&token) && !shown.contains("sk-abcdef"),

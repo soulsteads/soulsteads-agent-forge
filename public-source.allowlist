@@ -789,6 +789,11 @@ src/transfer.rs
 src/work_input.rs
 src/workflows.rs
 tests/admission_effects.rs
+tests/dashboard-overview.test.cjs
+tests/dashboard-plugins.test.cjs
+tests/dashboard-schedules.test.cjs
+tests/dashboard-skills.test.cjs
+tests/dashboard-workflows.test.cjs
 tests/fixtures/demo-plugin/bin/demo-plugin
 tests/fixtures/demo-plugin/flows/pipeline.json
 tests/fixtures/demo-plugin/jobs/daily.json
@@ -801,5 +806,6 @@ tests/fixtures/regenerate_demo_plugin.py
 tests/harness_gate.rs
 tests/plugin_process.rs
 tests/safety.rs
+tests/test_acp_qualification.py
 tests/test_export_source.py
 tests/test_publication_checks.py

@@ -870,7 +870,7 @@ class Live:
         page.fill('#pv-model-name', 'secret-model')
         page.fill('#pv-model-url', 'https://models.example.invalid/v1')
         page.fill('#pv-model-id', 'm')
-        page.fill('#pv-model-key', 'sk-fixture-' + 'x' * 32)
+        page.fill('#pv-model-key', 'sk-' + 'synthetic' * 4)
         page.click('#pv-model-save')
         page.wait_for_selector('#pv-model-result .alert.error', timeout=10000)
         smsg = page.inner_text('#pv-model-result')

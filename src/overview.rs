@@ -17,6 +17,24 @@ const FAILURE_STATUSES: [&str; 3] = [
     "MAX_RECOVERY_ATTEMPTS_EXCEEDED",
 ];
 
+fn permission_counts(decisions: &Value) -> Option<(usize, usize, usize, bool)> {
+    let decisions = decisions.as_array()?;
+    let (mut denied, mut withheld, mut unconfirmed, mut incomplete) = (0, 0, 0, false);
+    for record in decisions {
+        match (record["disposition"].as_str(), record["decision"].as_str()) {
+            (Some("released"), Some("allowed_once")) => {}
+            (None, Some("evidence_incomplete")) => incomplete = true,
+            (Some("withheld"), _) => withheld += 1,
+            (
+                Some("released") | None,
+                Some("denied" | "cancelled" | "cancelled_no_allow_option"),
+            ) => denied += 1,
+            _ => unconfirmed += 1,
+        }
+    }
+    Some((denied, withheld, unconfirmed, incomplete))
+}
+
 impl Core {
     /// Health, upcoming scheduled work and recent failures in one read.
     pub async fn overview(&self, actor: &str) -> Result<Value> {
@@ -192,6 +210,7 @@ impl Core {
             let started = attempt["started_ms"].as_i64();
             let finished = attempt["finished_ms"].as_i64();
             let duration = started.map(|s| finished.unwrap_or(now) - s);
+            let permissions = permission_counts(&attempt["permission_decisions"]);
             let entry = json!({
                 "run_id": run_id,
                 "work_id": works.get(&run_id),
@@ -206,7 +225,10 @@ impl Core {
                 "started_ms": started,
                 "duration_ms": duration,
                 "tool_events": attempt["tool_events"],
-                "permission_denials": attempt["permission_decisions"].as_array().map(|d| d.iter().filter(|x| x["decision"] != "allowed_once").count()),
+                "permission_denials": permissions.map(|(denied, _, _, _)| denied),
+                "permission_withheld": permissions.map(|(_, withheld, _, _)| withheld),
+                "permission_unconfirmed": permissions.map(|(_, _, unconfirmed, _)| unconfirmed),
+                "permission_evidence_incomplete": permissions.is_some_and(|(_, _, _, incomplete)| incomplete),
                 "actions": {"cancel": is_active},
             });
             if is_active {
@@ -263,5 +285,30 @@ impl Core {
             }));
         }
         Ok(json!({"schedules":out}))
+    }
+}
+
+#[cfg(test)]
+mod permission_count_tests {
+    use super::*;
+
+    #[test]
+    fn renewal_agent_counts_preserve_legacy_uncertainty() {
+        let decisions = json!([
+            {"decision":"allowed_once","disposition":"released"},
+            {"decision":"allowed_once"},
+            {"decision":"withheld","disposition":"withheld"},
+            {"decision":"unconfirmed","disposition":"unconfirmed"},
+            {"decision":"denied","disposition":"released"},
+            {"decision":"cancelled"}
+        ]);
+        assert_eq!(permission_counts(&decisions), Some((2, 1, 2, false)));
+        let mut incomplete = decisions.clone();
+        incomplete
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"decision":"evidence_incomplete"}));
+        assert_eq!(permission_counts(&incomplete), Some((2, 1, 2, true)));
+        assert_eq!(permission_counts(&Value::Null), None);
     }
 }

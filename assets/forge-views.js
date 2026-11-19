@@ -71,12 +71,28 @@ function attentionCard(approvals, recoveries, incompleteRuns) {
           h("li", {}, runLink(run.run_id, run.work_id || run.run_id), " — ", failureDetail(run)))) : "")));
 }
 
-async function overview() {
+let overviewRead = 0;
+async function overview({ fromRoute = true, silent = false } = {}) {
+  const onOverview = () => U.parseHash().view === "overview";
+  if (!onOverview()) return;
   const body = $("overview-body");
-  const [o, approvals] = await Promise.all([
-    F.call("overview"),
-    F.call("approvals", { state: "pending", limit: 100 }).catch(() => null),
-  ]);
+  const read = ++overviewRead, generation = U.routeGeneration();
+  const isCurrent = () => generation === U.routeGeneration() && read === overviewRead && onOverview();
+  let o, approvals;
+  try {
+    [o, approvals] = await Promise.all([
+      F.call("overview"),
+      F.call("approvals", { state: "pending", limit: 100 }).catch(() => null),
+    ]);
+  } catch (error) {
+    if (isCurrent() && !silent) {
+      const message = error.message || String(error);
+      alertBox($("overview-alert"), message);
+      if (fromRoute) F.status("Failed / state may be stale: " + message);
+    }
+    return;
+  }
+  if (!isCurrent()) return;
   const health = o.health;
   const recent = Array.isArray(o.failures)
     ? o.failures.filter((f) => typeof f?.run_id === "string" && f.run_id && typeof f.status === "string")
@@ -95,7 +111,7 @@ async function overview() {
       td(u.work_id), td(h("code", { text: u.schedule }), " ", h("small", { text: u.cron_timezone || "UTC" })))), { id: "ov-upcoming" })
     : h("p", { class: "empty", id: "ov-upcoming-empty", text: "No active schedules. Create one in Schedules." });
   body.replaceChildren(
-    h("div", { class: "row-actions" }, h("h2", { text: "Overview" }), refreshButton(() => guarded($("overview-alert"), overview))),
+    h("div", { class: "row-actions" }, h("h2", { text: "Overview" }), refreshButton(() => guarded($("overview-alert"), () => overview({ fromRoute: false })))),
     attentionCard(approvals, recoveries, incompleteRuns),
     h("div", { class: "card", id: "ov-health" },
       h("h3", { text: "Health" }),
@@ -118,26 +134,47 @@ async function overview() {
     doctorCard(),
     h("div", { class: "card" }, h("h3", { text: "Upcoming work" }), upcoming),
     h("div", { class: "card" }, h("h3", { text: "Recent failures" }), failures));
-  U.setPoll(() => { if (U.parseHash().view === "overview") overview().catch(() => {}); }, 8000);
+  U.setPoll(() => { if (onOverview()) overview({ fromRoute: false, silent: true }).catch(() => {}); }, 8000);
 }
 
 // ------------------------------------------------------------------ agents
 async function agents() {
   const body = $("agents-body"), diag = $("agents-alert");
   const a = await F.call("agents");
-  const row = (r) => h("tr", { "data-run": r.run_id },
+  const row = (r) => h("tr", { "data-run": r.run_id, "data-step": r.step },
     td(chip(r.status)), td(r.runner), td(r.adapter || "-", r.transport ? " (" + r.transport + ")" : ""), td(r.model || "-"),
-    td(secs(r.duration_ms)), td(String(r.tool_events ?? "-")), td(String(r.permission_denials ?? "-")),
+    td(secs(r.duration_ms)), td(String(r.tool_events ?? "-")), td(String(r.permission_denials ?? "-")), td(String(r.permission_withheld ?? "-")),
+    td(String(r.permission_unconfirmed ?? "-"), r.permission_evidence_incomplete ? h("small", { class: "hint", text: " · permission counts incomplete" }) : ""),
     td(runLink(r.run_id), " · ", h("small", { text: r.step })),
     td(r.actions.cancel ? h("button", { type: "button", class: "danger", text: "Cancel", onclick: () => guarded(diag, async () => { await F.call("cancel", { run_id: r.run_id }); await agents(); }) }) : ""));
-  const head = ["Status", "Runner", "Adapter", "Model", "Duration", "Tool events", "Denied", "Run · step", ""];
+  const head = ["Status", "Runner", "Adapter", "Model", "Duration", "Tool events", "Denied", "Withheld", "Unconfirmed", "Run · step", ""];
+  const restore = [];
+  const agentTable = (label, id, runs) => {
+    const previous = $(id)?.parentElement;
+    const region = h("div", { class: "scroll", role: "region", "aria-label": label, tabindex: "0" },
+      table(head, runs.map(row), { id }));
+    if (previous) {
+      const focused = previous.contains(document.activeElement) ? document.activeElement : null;
+      restore.push({ region, left: previous.scrollLeft, focused });
+    }
+    return region;
+  };
   body.replaceChildren(
     h("div", { class: "row-actions" }, h("h2", { text: "Agents" }), refreshButton(() => guarded(diag, agents))),
     h("p", { text: "Agent runs are harness and ACP workloads executed by operator-approved runner profiles inside durable runs. Choose a run for its live transcript, tool events and permission decisions." }),
     h("div", { class: "card" }, h("h3", { text: "Active" }),
-      a.active.length ? table(head, a.active.map(row), { id: "agents-active" }) : h("p", { class: "empty", id: "agents-active-empty", text: "No agent runs are active." })),
+      a.active.length ? agentTable("Active agent runs", "agents-active", a.active) : h("p", { class: "empty", id: "agents-active-empty", text: "No agent runs are active." })),
     h("div", { class: "card" }, h("h3", { text: "Recent" }),
-      a.recent.length ? table(head, a.recent.map(row), { id: "agents-recent" }) : h("p", { class: "empty", text: "No agent runs yet." })));
+      a.recent.length ? agentTable("Recent agent runs", "agents-recent", a.recent) : h("p", { class: "empty", text: "No agent runs yet." })));
+  for (const { region, left, focused } of restore) {
+    region.scrollLeft = left;
+    if (focused) {
+      const identity = focused.closest("tr[data-run]")?.dataset;
+      const sameStep = identity && Array.from(region.querySelectorAll("tr[data-run]")).find(row =>
+        row.dataset.run === identity.run && row.dataset.step === identity.step);
+      (sameStep?.querySelector(focused.localName) || region).focus({ preventScroll: true });
+    }
+  }
   if (a.active.length) U.setPoll(() => { if (U.parseHash().view === "agents") agents().catch(() => {}); }, 2500);
 }
 
@@ -176,19 +213,49 @@ async function approvals(query) {
 }
 
 // ------------------------------------------------------------------ skills
+let skillCatalogRead = 0;
+let skillCatalogPending = false;
+let skillShowRead = 0;
 async function skills() {
   const body = $("skills-body"), diag = $("skills-alert");
-  const r = await F.call("skills");
+  const read = ++skillCatalogRead, generation = U.routeGeneration();
+  ++skillShowRead;
+  skillCatalogPending = true;
+  const isCurrent = () => generation === U.routeGeneration() && read === skillCatalogRead && U.parseHash().view === "skills";
+  let r;
+  try {
+    r = await F.call("skills");
+  } catch (error) {
+    if (isCurrent()) {
+      skillCatalogPending = false;
+      const message = error.message || String(error);
+      alertBox(diag, message);
+      F.status("Failed / state may be stale: " + message);
+    }
+    return;
+  }
+  if (!isCurrent()) return;
+  skillCatalogPending = false;
   const shown = h("div", { id: "sk-content" });
+  const isMounted = () => U.parseHash().view === "skills" && $("sk-content") === shown;
   const rows = r.skills.map((s) => h("tr", { "data-skill": s.name },
-    td(h("code", { text: s.name })), td(s.description), td(String(s.bytes) + " bytes"), td(h("code", { text: s.sha256.slice(0, 12) })),
-    td(h("button", { type: "button", text: "Show", onclick: () => guarded(diag, async () => {
-      const full = await F.call("skill_show", { name: s.name });
-      shown.replaceChildren(h("h3", { text: full.name }), pre(full.content));
-    }) }))));
+    td(h("code", { text: s.name })), td(s.description), td(String(s.bytes) + " bytes"), td(h("code", { text: s.sha256 })),
+    td(h("button", { type: "button", text: "Show", onclick: async () => {
+      if (!isMounted()) return;
+      const ownsPane = !skillCatalogPending;
+      const showRead = ++skillShowRead, generation = U.routeGeneration();
+      const isCurrentShow = () => ownsPane && generation === U.routeGeneration() && showRead === skillShowRead && isMounted();
+      if (ownsPane) alertBox(diag, "");
+      try {
+        const full = await F.call("skill_show", { name: s.name });
+        if (isCurrentShow()) shown.replaceChildren(h("h3", { text: full.name }), pre(full.content, { role: "region", "aria-label": "Skill text", tabindex: "0" }));
+      } catch (error) {
+        if (isCurrentShow()) alertBox(diag, error.message || String(error));
+      }
+    } }))));
   body.replaceChildren(h("h2", { text: "Skills" }),
     h("p", { text: "Read-only catalog of the skills compiled into this Forge build, the same text `agent-forge skill` prints. Skills are distributed with releases; there is no install or edit lifecycle here." }),
-    r.skills.length ? table(["Skill", "Description", "Size", "sha256", ""], rows, { id: "sk-table" }) : h("p", { class: "empty", text: "No skills." }), shown);
+    r.skills.length ? U.scrollTable("Skill catalog", table(["Skill", "Description", "Size", "sha256", ""], rows, { id: "sk-table" })) : h("p", { class: "empty", text: "No skills." }), shown);
 }
 
 // ------------------------------------------------------------------ providers
@@ -328,32 +395,128 @@ async function transfer() {
     h("div", { class: "card" }, h("h3", { text: "Archives" }),
       t.archives.length ? table(["Name", "State", "Created", "Files", "Database dump", "Restore (CLI only)"], rows, { id: "tr-table" }) : h("p", { class: "empty", id: "tr-empty", text: "No backups yet." })),
     h("div", { class: "card" }, h("h3", { text: "Restore" }), h("p", { id: "tr-restore", text: t.restore_instruction })),
-    definitionsCard(diag));
+    definitionsCard());
   if (job && job.state === "running") U.setPoll(() => { if (U.parseHash().view === "transfer") transfer().catch(() => {}); }, 1500);
 }
 
 // Work and schedule definitions: export to JSON, validate/import (all-or-nothing, idempotent).
-function definitionsCard(diag) {
-  const box = h("textarea", { id: "tr-defs", rows: 10, placeholder: "Exported definitions JSON appears here; paste a document to import it." });
+function definitionsCard() {
+  // The HTTP API limits the complete JSON request body to 1 MiB.
+  const limit = 1024 * 1024;
+  const hint = "Validate the current JSON before importing.";
+  const box = h("textarea", { id: "tr-defs", rows: 10, placeholder: "Paste a definitions document here." });
+  const file = h("input", { type: "file", accept: ".json,application/json" });
   const replace = h("input", { type: "checkbox", id: "tr-defs-replace" });
+  const notice = h("div", { id: "tr-defs-notice" });
   const result = h("div", { id: "tr-defs-result" });
-  const doImport = (dry) => guarded(diag, async () => {
-    let doc;
-    try { doc = JSON.parse(box.value); } catch { throw Error("The document is not valid JSON."); }
-    const r = await F.call("definitions_import", { document: doc, replace: replace.checked, dry_run: dry });
+  file.style.maxWidth = "100%";
+  file.style.boxSizing = "border-box";
+  notice.style.overflowWrap = result.style.overflowWrap = "anywhere";
+  let version = 0, pending = null, preview = null;
+
+  const canImport = () => !pending && preview !== null &&
+    preview.text === box.value && preview.replace === replace.checked;
+  const update = () => {
+    const importing = pending === "import";
+    box.disabled = file.disabled = replace.disabled = exportButton.disabled = importing;
+    validate.disabled = pending !== null;
+    apply.disabled = !canImport();
+  };
+  const invalidate = (operation = null) => {
+    pending = operation;
+    preview = null;
+    result.replaceChildren();
+    alertBox(notice, "");
+    update();
+    return ++version;
+  };
+  const operate = async (operation, message, action) => {
+    const requested = invalidate(operation);
+    alertBox(notice, message, "info");
+    const current = () => box.isConnected && version === requested;
+    try { await action(current); }
+    catch (e) { if (current()) alertBox(notice, e.message || String(e)); }
+    finally {
+      if (current()) {
+        pending = null;
+        update();
+      }
+    }
+  };
+  const documentFor = (text, replace) => {
+    let document;
+    try { document = JSON.parse(text); }
+    catch { throw Error("The document is not valid JSON."); }
+    const payload = JSON.stringify({ method: "definitions_import", params: { document, replace, dry_run: false } });
+    if (new TextEncoder().encode(payload).length > limit) throw Error("The definitions request exceeds the 1 MiB service limit.");
+    return document;
+  };
+  const showReport = (r) => {
     result.replaceChildren(
-      h("p", { id: "tr-defs-status", class: r.issues.length ? "alert error" : "alert ok", text: r.applied ? "Imported." : r.issues.length ? "Refused: nothing was written." : "Dry run: nothing was written." }),
+      h("p", { id: "tr-defs-status", role: "status", class: r.issues.length ? "alert error" : "alert ok", text: r.applied ? "Imported." : r.issues.length ? "Refused: nothing was written." : "Dry run: nothing was written." }),
       r.issues.length ? h("ul", {}, r.issues.map((i) => h("li", { text: i }))) : "",
-      table(["Kind", "Identity", "Action"], [...r.work.map((w) => h("tr", {}, td("work"), td(w.id), td(w.action))), ...r.schedules.map((x) => h("tr", {}, td("schedule"), td(x.name), td(x.action)))]));
+      h("div", { class: "scroll", role: "region", "aria-label": "Definition import changes", tabindex: "0" },
+        table(["Kind", "Identity", "Action"], [...r.work.map((w) => h("tr", {}, td("work"), td(w.id), td(w.action))), ...r.schedules.map((x) => h("tr", {}, td("schedule"), td(x.name), td(x.action)))])));
+  };
+
+  box.addEventListener("input", () => invalidate());
+  replace.addEventListener("change", () => invalidate());
+  file.addEventListener("change", () => {
+    const selected = file.files[0];
+    if (!selected) return;
+    file.value = "";
+    operate("read", "Reading JSON file…", async (current) => {
+      if (!/\.json$/i.test(selected.name)) throw Error("Choose a .json file.");
+      if (selected.size > limit) throw Error("The JSON file exceeds the 1 MiB service limit.");
+      let bytes, text;
+      try { bytes = await selected.arrayBuffer(); }
+      catch { throw Error("Could not read the JSON file."); }
+      if (!current()) return;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch { throw Error("The JSON file is not valid UTF-8."); }
+      documentFor(text, replace.checked);
+      box.value = text;
+      alertBox(notice, "Loaded " + selected.name + ". " + hint, "info");
+    });
   });
+  const exportButton = h("button", { type: "button", id: "tr-defs-export", text: "Export", onclick: () =>
+    operate("export", "Exporting definitions…", async (current) => {
+      const exported = await F.call("definitions_export");
+      if (!current()) return;
+      box.value = JSON.stringify(exported, null, 2);
+      alertBox(notice, hint, "info");
+    }) });
+  const validate = h("button", { type: "button", id: "tr-defs-dry", text: "Validate (dry run)", onclick: () => {
+    const draft = { text: box.value, replace: replace.checked };
+    operate("preview", "Validating definitions…", async (current) => {
+      const document = documentFor(draft.text, draft.replace);
+      const r = await F.call("definitions_import", { document, replace: draft.replace, dry_run: true });
+      if (!current()) return;
+      if (r.dry_run !== true || r.applied !== false || r.replace !== draft.replace) {
+        throw Error("The service did not return a matching dry-run result.");
+      }
+      showReport(r);
+      alertBox(notice, "");
+      if (r.issues.length === 0) preview = { ...draft, document };
+    });
+  } });
+  const apply = h("button", { type: "button", id: "tr-defs-import", class: "primary", text: "Import", disabled: true, onclick: () => {
+    if (!canImport()) return;
+    const approved = preview;
+    operate("import", "Importing definitions…", async (current) => {
+      const r = await F.call("definitions_import", { document: approved.document, replace: approved.replace, dry_run: false });
+      if (!current()) return;
+      showReport(r);
+      alertBox(notice, "");
+    });
+  } });
   return h("div", { class: "card", id: "tr-definitions" }, h("h3", { text: "Work and schedule definitions" }),
-    h("p", { class: "hint", text: "Export your definitions (not plugin-owned ones) as JSON, or import a document. Import validates everything with your authority first, is idempotent, and refuses collisions unless Replace is set." }),
-    h("div", { class: "row-actions" },
-      h("button", { type: "button", id: "tr-defs-export", text: "Export", onclick: () => guarded(diag, async () => { box.value = JSON.stringify(await F.call("definitions_export"), null, 2); }) }),
-      h("button", { type: "button", id: "tr-defs-dry", text: "Validate (dry run)", onclick: () => doImport(true) }),
-      h("button", { type: "button", id: "tr-defs-import", class: "primary", text: "Import", onclick: () => doImport(false) }),
+    h("p", { class: "hint", text: "Choose a JSON file or paste a document. Validate to preview changes, then select Import to apply them. Replace is required for collisions." }),
+    h("label", {}, "Choose a JSON file", file),
+    h("label", { class: "wide" }, "Definitions JSON", box),
+    h("div", { class: "row-actions" }, exportButton, validate, apply,
       h("label", {}, replace, " Replace colliding identities")),
-    box, result);
+    notice, result);
 }
 
 registerView("overview", () => overview());
@@ -474,12 +637,29 @@ function section(state, step, effect) {
     h("h5", { text: "Permission decisions" }),
     h("p", { class: "hint", text: "Forge answers every ACP permission request by deny-by-default policy; none waits for a human." }),
     h("table", { id: "acp-permissions" }, h("thead", {}, h("tr", {}, ["Kind", "Locations", "Decision", "Reason", "Title"].map((t) => h("th", { text: t })))), permBody));
-  const sec = { el, text, toolBody, permBody, tools: new Map(), empty: { tool: true, perm: true } };
+  const sec = { el, text, toolBody, permBody, tools: new Map(), permissions: new Map(), empty: { tool: true, perm: true } };
+  for (const record of attempt.permission_decisions || out.permission_decisions || []) {
+    if (record.evidence_id != null) renderPermission(sec, record);
+  }
   state.sections.set(step, sec);
   state.root.append(el);
   return sec;
 }
 function emptyRow(body, cols, label) { body.replaceChildren(h("tr", { class: "empty-row" }, h("td", { colspan: String(cols), class: "hint", text: label }))); }
+function renderPermission(sec, b) {
+  const key = b.evidence_id;
+  const prior = key == null ? null : sec.permissions.get(key);
+  if (prior && prior.dataset.disposition !== "unconfirmed" && b.disposition === "unconfirmed") return;
+  if (sec.empty.perm) { sec.permBody.replaceChildren(); sec.empty.perm = false; }
+  const locs = Array.isArray(b.locations) ? b.locations.map((l) => (l && l.path) || l).join(", ") : "";
+  const decision = b.decision === "allowed_once" && b.disposition !== "released" ? "unconfirmed" : (b.decision || "unknown");
+  const detail = b.disposition_reason || (decision === "unconfirmed" ? "Transport release was not confirmed." : b.reason);
+  const row = h("tr", { "data-decision": decision, "data-disposition": b.disposition || "legacy" },
+    td(b.kind || "other"), td(locs || "(none given)"), td(chip(decision === "evidence_incomplete" ? "INCOMPLETE" : decision.toUpperCase().replace("ALLOWED_ONCE", "ALLOWED"))), td(detail || "-"), td(b.title || ""));
+  if (prior) prior.replaceWith(row);
+  else sec.permBody.append(row);
+  if (key != null) sec.permissions.set(key, row);
+}
 function apply(state, entry) {
   if (!entry || !entry.id || state.seen.has(entry.id)) return;
   state.seen.add(entry.id);
@@ -501,10 +681,7 @@ function apply(state, entry) {
     if (typeof b.status === "string") row.status.textContent = b.status;
     if (typeof b.title === "string") row.title.textContent = b.title;
   } else if (entry.type === "permission") {
-    if (sec.empty.perm) { sec.permBody.replaceChildren(); sec.empty.perm = false; }
-    const locs = Array.isArray(b.locations) ? b.locations.map((l) => (l && l.path) || l).join(", ") : "";
-    sec.permBody.append(h("tr", { "data-decision": b.decision || "" },
-      td(b.kind || "other"), td(locs || "(none given)"), td(chip(String(b.decision || "unknown").toUpperCase().replace("ALLOWED_ONCE", "ALLOWED"))), td(b.reason || "-"), td(b.title || "")));
+    renderPermission(sec, b);
   } else if (entry.type === "cancel_sent") {
     sec.text.textContent += "\n[cancel requested]\n";
   }

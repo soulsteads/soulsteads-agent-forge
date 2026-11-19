@@ -1012,27 +1012,23 @@ mod tests {
     }
     #[test]
     fn connection_fields_decode_without_putting_credentials_in_arguments() {
-        let password = "demo+pass@fixture";
-        // Explicit wire spelling: a test of decoding, independent of URL encoders.
-        let escaped = "demo%2Bpass%40fixture";
         let fields = connection_env(&format!(
             "{}://{}:{}@[::1]:5432/forge%2Bdb?sslmode=disable",
-            "postgresql", "u%2Bser", escaped
+            "postgresql", "u%2Bser", "s%3Ae%25cret"
         ))
         .unwrap();
         assert_eq!(fields["PGHOST"], "::1");
         assert_eq!(fields["PGUSER"], "u+ser");
-        assert_eq!(fields["PGPASSWORD"], password);
+        assert_eq!(fields["PGPASSWORD"], "s:e%cret");
         assert_eq!(fields["PGDATABASE"], "forge+db");
         let override_fields = connection_env("postgresql://base@localhost:5432/base?host=%2Ftmp%2Fpg&user=other&port=6543&dbname=restored").unwrap();
         assert_eq!(override_fields["PGHOST"], "/tmp/pg");
         assert_eq!(override_fields["PGDATABASE"], "restored");
         assert_eq!(override_fields["PGPORT"], "6543");
-        let invalid_password = "p%00";
         assert!(
             connection_env(&format!(
                 "{}://{}:{}@localhost:5432/db",
-                "postgresql", "fixture", invalid_password
+                "postgresql", "u", "p%00"
             ))
             .is_err()
         );

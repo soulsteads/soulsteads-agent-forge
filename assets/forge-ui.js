@@ -29,7 +29,10 @@ function brief(v, n = 90) {
   let t = typeof v === "string" ? v : v && typeof v === "object" && Object.keys(v).length === 1 && typeof v.text === "string" ? v.text : JSON.stringify(v);
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 }
-function pre(v) { return h("pre", { text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }); }
+function pre(v, attrs = {}) { return h("pre", { ...attrs, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }); }
+function scrollTable(label, table) {
+  return h("div", { class: "scroll operator-table", role: "region", "aria-label": label, tabindex: "0" }, table);
+}
 function newKey() { return "ui-" + crypto.randomUUID(); }
 function alertBox(target, message, kind = "error") {
   target.replaceChildren(message ? h("div", { class: "alert " + kind, role: kind === "error" ? "alert" : "status", text: message }) : "");
@@ -121,13 +124,28 @@ function renderPluginNav() {
   markCurrentView(parseHash().view);
 }
 let activePlugin = null;
+function disposePlugin(cleanup) {
+  if (typeof cleanup !== "function") return;
+  try { Promise.resolve(cleanup()).catch(() => {}); } catch { /* plugin cleanup is best effort */ }
+}
+function cleanupPlugin() {
+  const previous = activePlugin;
+  activePlugin = null;
+  disposePlugin(previous?.cleanup);
+}
 async function pluginPage(pluginId, page) {
   const body = $("x-body"), diag = $("x-alert");
-  await guarded(diag, async () => {
-    if (activePlugin?.cleanup) { try { activePlugin.cleanup(); } catch { /* plugin cleanup is best effort */ } }
-    activePlugin = null;
+  const generation = routeGeneration;
+  const isCurrent = () => {
+    const route = parseHash();
+    return generation === routeGeneration && route.view === "x" && route.id === pluginId && route.rest === page;
+  };
+  try {
+    cleanupPlugin();
     body.replaceChildren();
-    snapshot = await F.call("snapshot");
+    const nextSnapshot = await F.call("snapshot");
+    if (!isCurrent()) return;
+    snapshot = nextSnapshot;
     renderPluginNav();
     const plugin = installedPlugins().find((p) => p.id === pluginId);
     const route = plugin?.dashboard?.find((r) => r.path === page);
@@ -141,19 +159,29 @@ async function pluginPage(pluginId, page) {
     // this small host API; third-party sandboxing is a documented non-goal for now.
     const host = Object.freeze({
       pluginId, route: page, mount,
-      fetch: (subpath, init) => F.pluginFetch(pluginId, subpath, init),
-      setStatus: (text) => F.status(String(text)),
+      fetch: async (subpath, init) => {
+        if (!isCurrent()) throw Error("This plugin page is no longer active.");
+        return F.pluginFetch(pluginId, subpath, init);
+      },
+      setStatus: (text) => { if (isCurrent()) F.status(String(text)); },
     });
     const module = await import(route.entry + "?v=" + encodeURIComponent(plugin.version));
+    if (!isCurrent()) return;
     const mountFn = module.mount || module.default;
     if (typeof mountFn !== "function") throw Error("The plugin module exports no mount function.");
     const cleanup = await mountFn(mount, host);
-    activePlugin = { cleanup: typeof cleanup === "function" ? cleanup : null };
-  });
+    if (isCurrent()) activePlugin = { cleanup: typeof cleanup === "function" ? cleanup : null };
+    else disposePlugin(cleanup);
+  } catch (error) {
+    if (isCurrent()) alertBox(diag, error.message || String(error));
+  }
 }
 const ALERT_IDS = { runs: "runs-alert", schedules: "sc-alert", queues: "q-alert", plugins: "pl-alert", x: "x-alert", workflows: "wf-alert" };
+let routeGeneration = 0;
 const alertFor = (view) => $(ALERT_IDS[view] || view + "-alert");
 async function route() {
+  ++routeGeneration;
+  cleanupPlugin();
   clearTimeout(pollTimer);
   const r = parseHash();
   show(r.view);
@@ -271,9 +299,29 @@ async function pluginView(kind) {
 }
 
 // ------------------------------------------------------------------ workflows
+let workflowListRead = 0;
 async function workflowList() {
+  const onList = () => {
+    const route = parseHash();
+    return route.view === "workflows" && !route.id;
+  };
+  if (!onList()) return;
+  const read = ++workflowListRead, generation = routeGeneration;
+  const isCurrent = () => generation === routeGeneration && read === workflowListRead && onList();
   const body = $("wf-body");
-  snapshot = await F.call("snapshot");
+  let nextSnapshot;
+  try {
+    nextSnapshot = await F.call("snapshot");
+  } catch (error) {
+    if (isCurrent()) {
+      const message = error.message || String(error);
+      alertBox($("wf-alert"), message);
+      F.status("Failed / state may be stale: " + message);
+    }
+    return;
+  }
+  if (!isCurrent()) return;
+  snapshot = nextSnapshot;
   const flows = snapshot.work.filter((w) => w.definition.type === "workflow");
   const rows = flows.map((w) => h("tr", {},
     h("td", {}, h("a", { href: "#/workflows/" + encodeURIComponent(w.id), text: w.id })),
@@ -413,6 +461,20 @@ async function workflowDetail(id) {
   const d = w.definition;
   const runsBox = h("div", { id: "wf-recent" });
   const diag = h("div");
+  const downloadNotice = h("div");
+  const download = h("button", { type: "button", text: "Download JSON", onclick: () => guarded(downloadNotice, async () => {
+    const bundle = await F.call("definitions_export");
+    const current = parseHash();
+    if (!download.isConnected || current.view !== "workflows" || current.id !== id) return;
+    const work = bundle?.format === "forge-definitions/v1" && Array.isArray(bundle.work)
+      ? bundle.work.find((entry) => entry?.id === id) : null;
+    if (!work) throw Error("This workflow is not available in your definitions export.");
+    const data = JSON.stringify({ format: bundle.format, work: [work] }, null, 2) + "\n";
+    const url = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+    const name = "workflow-" + id.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 128) + ".json";
+    h("a", { href: url, download: name }).click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }) });
   const steps = (d.input.steps || []).map((s, i) => h("tr", {},
     h("td", { text: String(i + 1) }), h("td", { text: s.id }), h("td", { text: (s.needs || []).join(", ") || "-" }),
     h("td", { text: s.action.work_id ? "work:" + s.action.work_id : s.action.type }),
@@ -426,7 +488,9 @@ async function workflowDetail(id) {
   });
   body.replaceChildren(
     h("p", {}, h("a", { href: "#/workflows", text: "← All workflows" })),
-    h("h2", { text: "Workflow " + w.id }),
+    h("div", { class: "row-actions" }, h("h2", { text: "Workflow " + w.id }),
+      d.type === "workflow" ? download : ""),
+    downloadNotice,
     h("p", {}, chip(w.enabled ? "ENABLED" : "DISABLED"), " created " + when(w.created) + " · type " + d.type),
     d.type !== "workflow" ? h("p", { text: "This work item is not a workflow; inspect it in Operations." }) : h("div", { id: "wf-structure" },
       h("table", { id: "wf-steps-table" }, h("thead", {}, h("tr", {}, ["#", "Step", "Reads from", "Action", "Input"].map((t) => h("th", { text: t })))), h("tbody", {}, steps)),
@@ -493,12 +557,12 @@ function retryButton(id, diag) {
 
 function runTable(runs) {
   if (!runs.length) return h("p", { class: "empty", text: "No runs match." });
-  return h("table", { class: "runs-table" },
+  return scrollTable("Run results", h("table", { class: "runs-table" },
     h("thead", {}, h("tr", {}, ["Run", "Status", "Work", "Type", "Created", "Result"].map((t) => h("th", { text: t })))),
     h("tbody", {}, runs.map((r) => h("tr", {},
-      h("td", {}, h("a", { href: "#/runs/" + encodeURIComponent(r.run_id), text: r.run_id.slice(0, 18) + "…", title: r.run_id })),
+      h("td", {}, h("a", { href: "#/runs/" + encodeURIComponent(r.run_id), text: r.run_id })),
       h("td", {}, chip(r.status)), h("td", { text: r.work_id }), h("td", { text: r.type || "-" }), h("td", { text: when(r.created) }),
-      h("td", { text: r.failure ? (r.failure.location === "unknown" ? "failed (location unknown)" : "failed at " + (r.failure.step || "workflow") + ": " + brief(r.failure.reason, 80)) : brief(r.output) })))));
+      h("td", { text: r.failure ? (r.failure.location === "unknown" ? "failed (location unknown)" : "failed at " + (r.failure.step || "workflow") + ": " + brief(r.failure.reason, 80)) : brief(r.output) }))))));
 }
 
 async function runList(query) {
@@ -529,7 +593,12 @@ async function runList(query) {
 async function runDetail(id) {
   const body = $("runs-body");
   const diag = h("div", { id: "run-diag" });
+  const showingRun = () => {
+    const route = parseHash();
+    return route.view === "runs" && route.id === id;
+  };
   const run = await F.call("inspect", { run_id: id });
+  if (!showingRun()) return;
   const retryDiag = run.actions.retry ? h("div", { id: "run-retry-diag" }) : null;
   const wf = run.workflow;
   const header = h("div", { class: "card run-head" },
@@ -556,17 +625,27 @@ async function runDetail(id) {
       h("tbody", {}, run.steps.map((s) => h("tr", {}, h("td", { text: String(s.function_id) }), h("td", { text: s.function_name }), h("td", { text: s.error ? "error" : "ok" }), h("td", {}, h("code", { text: brief(s.output, 200) }))))));
   }
   const finalOutput = run.type === "workflow" && run.output ? run.output.output : run.output;
+  const previousSteps = body.querySelector("#run-steps")?.parentElement;
+  const sameRun = previousSteps?.dataset.runId === id;
+  const stepsScroll = sameRun ? previousSteps.scrollLeft : 0;
+  const stepsFocused = sameRun && document.activeElement === previousSteps;
+  const stepsRegion = scrollTable("Run steps", steps);
+  stepsRegion.dataset.runId = id;
   body.replaceChildren(
     h("p", {}, h("a", { href: "#/runs", text: "← All runs" })),
     header, actions, retryDiag, diag,
-    h("h3", { text: "Steps" }), steps,
-    h("h3", { text: "Final output" }), finalOutput === null || finalOutput === undefined ? h("p", { class: "empty", text: ACTIVE.includes(run.status) ? "Not finished yet." : "No published output." }) : pre(finalOutput),
+    h("h3", { text: "Steps" }), stepsRegion,
+    h("h3", { text: "Final output" }), finalOutput === null || finalOutput === undefined ? h("p", { class: "empty", text: ACTIVE.includes(run.status) ? "Not finished yet." : "No published output." }) : pre(finalOutput, { role: "region", "aria-label": "Final output", tabindex: "0" }),
     h("details", {}, h("summary", { text: "Parameters" }), pre(run.params)),
     run.effects && run.effects.length ? h("details", { open: true }, h("summary", { text: "External effects" }), pre(run.effects)) : "",
     h("details", {}, h("summary", { text: "Audit log" }), h("ul", {}, (run.logs || []).map((l) => h("li", { text: `${when(l.created)} · ${l.actor} · ${l.action}${l.detail ? " · " + l.detail : ""}` })))),
     h("details", {}, h("summary", { text: "Native step checkpoints" }), pre(run.steps)));
+  if (stepsFocused) stepsRegion.focus({ preventScroll: true });
+  stepsRegion.scrollLeft = stepsScroll;
   if (F.runExtras) await F.runExtras(run, body, diag);
-  if (ACTIVE.includes(run.status)) pollTimer = setTimeout(() => { if (parseHash().id === id) runDetail(id).catch((e) => alertBox(diag, e.message)); }, 1500);
+  if (ACTIVE.includes(run.status) && showingRun()) {
+    pollTimer = setTimeout(() => { if (showingRun()) runDetail(id).catch((e) => alertBox(diag, e.message)); }, 1500);
+  }
 }
 // A located failure names its step; an unlocatable one says so and points at
 // the raw native checkpoints and audit instead of guessing a step.
@@ -597,13 +676,35 @@ const outcomeChip = (o) => h("span", { class: "chip st-" + String(OUTCOME_CLASS[
 // Ticks keep their explicit offset: schedule-zone wall time for upcoming ticks, UTC for fired ones.
 const iso = (t) => (t ? String(t).replace("T", " ") : "-");
 
+let scheduleListRead = 0;
 async function scheduleList(query) {
+  const requestedQuery = query.toString();
+  const onList = () => {
+    const route = parseHash();
+    return route.view === "schedules" && !route.id && route.query.toString() === requestedQuery;
+  };
+  if (!onList()) return;
+  const read = ++scheduleListRead, generation = routeGeneration;
+  const isCurrent = () => generation === routeGeneration && read === scheduleListRead && onList();
   const body = $("sc-body");
-  snapshot = await F.call("snapshot");
   const tagFilter = query.get("tag") || "";
-  const allTags = [...new Set(snapshot.schedules.flatMap((s) => s.tags || []))].sort();
-  const list = tagFilter ? await F.call("schedules", { tag: tagFilter }) : snapshot.schedules;
-  const stats = Object.fromEntries(((await F.call("schedule_stats")).schedules || []).map((x) => [x.schedule_name, x]));
+  let nextSnapshot, list, stats;
+  try {
+    nextSnapshot = await F.call("snapshot");
+    if (!isCurrent()) return;
+    list = tagFilter ? await F.call("schedules", { tag: tagFilter }) : nextSnapshot.schedules;
+    if (!isCurrent()) return;
+    stats = Object.fromEntries(((await F.call("schedule_stats")).schedules || []).map((x) => [x.schedule_name, x]));
+  } catch (error) {
+    if (isCurrent()) {
+      const message = error.message || String(error);
+      alertBox($("sc-alert"), message);
+      F.status("Failed / state may be stale: " + message);
+    }
+    return;
+  }
+  if (!isCurrent()) return;
+  const allTags = [...new Set(nextSnapshot.schedules.flatMap((s) => s.tags || []))].sort();
   const rows = list.map((s) => h("tr", { "data-schedule": s.schedule_name },
     h("td", {}, h("a", { href: "#/schedules/" + encodeURIComponent(s.schedule_name), text: s.schedule_name })),
     h("td", {}, chip(s.status)),
@@ -616,6 +717,7 @@ async function scheduleList(query) {
     h("td", { class: "stat-bad", text: String(stats[s.schedule_name]?.failed ?? 0) }),
     h("td", { text: String((stats[s.schedule_name]?.cancelled ?? 0) + (stats[s.schedule_name]?.running ?? 0)) }),
     h("td", {}, stats[s.schedule_name]?.last_run_id ? h("a", { href: "#/runs/" + encodeURIComponent(stats[s.schedule_name].last_run_id), text: stats[s.schedule_name].last_outcome || "run" }) : "-")));
+  snapshot = nextSnapshot;
   body.replaceChildren(
     h("h2", { text: "Schedules" }),
     h("p", { text: "DBOS fires each due tick on the schedule's IANA wall clock and Forge admits one run per tick. Missed ticks (while paused or while no service runs) are skipped, not caught up." }),
@@ -909,4 +1011,4 @@ async function queueView(only, query) {
 route();
 
 // Shared helpers for the views in forge-views.js (loaded after this module).
-F.ui = { h, when, dur, chip, brief, pre, newKey, alertBox, guarded, go, parseHash, registerView, route, STATUSES, ACTIVE, stamp, iso, snapshot: () => snapshot, setPoll: (fn, ms) => { clearTimeout(pollTimer); pollTimer = setTimeout(fn, ms); } };
+F.ui = { h, when, dur, chip, brief, pre, newKey, alertBox, guarded, go, parseHash, registerView, route, scrollTable, STATUSES, ACTIVE, stamp, iso, snapshot: () => snapshot, routeGeneration: () => routeGeneration, setPoll: (fn, ms) => { clearTimeout(pollTimer); pollTimer = setTimeout(fn, ms); } };

@@ -142,9 +142,10 @@ async fn turn(
     let mut final_text = String::new();
     let mut prelude = 0usize;
     let command = json!({"id":"forge-prompt","type":"prompt","message":d.prompt});
-    stdin.write_all(command.to_string().as_bytes()).await?;
-    stdin.write_all(b"\n").await?;
-    stdin.flush().await?;
+    let line = format!("{command}\n");
+    let authorize = || d.authority.check().map_err(std::io::Error::other);
+    write_authorized(&mut stdin, line.as_bytes(), d.authority.deadline, authorize).await?;
+    flush_authorized(&mut stdin, d.authority.deadline, authorize).await?;
     let mut aborting: Option<tokio::time::Instant> = None;
     loop {
         let mut bytes = Vec::new();

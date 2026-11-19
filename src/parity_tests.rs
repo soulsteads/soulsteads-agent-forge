@@ -802,7 +802,7 @@ fn the_service_unit_never_carries_the_database_credential() {
         &env,
         format!(
             "FORGE_DATABASE_URL={}://{}:{}@127.0.0.1:5432/d\n",
-            "postgresql", "fixture", "SECRETPW"
+            "postgresql", "u", "SECRETPW"
         ),
     )
     .unwrap();

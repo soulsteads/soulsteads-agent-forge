@@ -144,15 +144,12 @@ async fn plugin_environment_is_an_explicit_allowlist_and_never_carries_forge_cre
     unsafe {
         std::env::set_var(
             "FORGE_DATABASE_URL",
-            format!(
-                "{}://{}:{}@127.0.0.1/db",
-                "postgresql", "leak", "fixture-password"
-            ),
+            format!("{}://{}:{}@127.0.0.1/db", "postgresql", "leak", "leak"),
         );
         std::env::set_var("FORGE_TOKEN", "leaked-dashboard-token-value");
         std::env::set_var(
             "M3_DB_URL_VAR",
-            format!("{}://{}:{}@127.0.0.1/db", "postgresql", "fixture", "viaenv"),
+            format!("{}://{}:{}@127.0.0.1/db", "postgresql", "leak", "viaenv"),
         );
         std::env::set_var("M3_PLUGIN_NEEDS", "granted-value");
         std::env::set_var("M3_NOT_GRANTED", "withheld-value");
