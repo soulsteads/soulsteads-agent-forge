@@ -1,0 +1,14 @@
+{
+  "description": "Demo workflow: plugin step then a core step",
+  "work": {
+    "type": "workflow",
+    "input": {
+      "steps": [
+        {"id": "first", "action": {"type": "plugin.demo-fixture", "input": {"text": "flow"}}},
+        {"id": "second", "needs": ["first"], "action": {"type": "echo", "input": {"text": "got ${/steps/first/output/text}"}}}
+      ],
+      "output": {"report": {"$ref": "/steps/second/output/text"}}
+    }
+  },
+  "enabled": false
+}

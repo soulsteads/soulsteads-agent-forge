@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Test-only Forge plugin (stdio protocol 2) with one contribution of every kind.
+
+Never shipped: it lives under tests/ and is not in the crate's `include` list.
+"""
+import json
+import os
+import sys
+import time
+
+request = json.load(sys.stdin)
+operation = request.get("operation")
+
+
+def reply(**fields):
+    print(json.dumps({"api_version": 2, **fields}))
+
+
+def receipt(kind, detail):
+    path = os.environ.get("DEMO_PLUGIN_RECEIPTS")
+    if path:
+        with open(path, "a") as handle:
+            handle.write(json.dumps({"kind": kind, "detail": detail}) + "\n")
+
+
+if operation == "describe":
+    reply(
+        description="Test fixture plugin: echoes text",
+        schema={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "maxLength": 1000},
+                "delay": {"type": "number", "minimum": 0, "maximum": 60},
+            },
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+    )
+elif operation == "execute":
+    text = request["input"]["text"]
+    receipt("execute", {"text": text, "run": request["context"]["run_id"]})
+    time.sleep(request["input"].get("delay", 0))
+    reply(output={"text": "demo:" + text, "run": request["context"]["run_id"]})
+elif operation == "cli":
+    command, args = request["command"], request["args"]
+    receipt("cli", {"command": command, "args": args, "principal": request["principal"]})
+    if command == ["hello"]:
+        reply(exit_code=0, stdout="hello " + " ".join(args) + "\n", stderr="")
+    elif command == ["fail"]:
+        reply(exit_code=7, stdout="", stderr="boom\n")
+    else:
+        reply(exit_code=2, stdout="", stderr="unknown command\n")
+elif operation == "api":
+    method, path = request["method"], request["path"]
+    receipt("api", {"method": method, "path": path, "principal": request["principal"]})
+    if (method, path) == ("GET", "/status"):
+        reply(status=200, headers={"content-type": "application/json", "etag": "v1"},
+              body={"ok": True, "principal": request["principal"], "query": request["query"]})
+    elif (method, path) == ("POST", "/echo"):
+        reply(status=201, headers={"content-type": "application/json"}, body={"echo": request["body"]})
+    elif (method, path) == ("GET", "/html"):
+        reply(status=200, headers={"content-type": "text/html"}, body="<script>alert(1)</script>")
+    elif (method, path) == ("GET", "/header-injection"):
+        reply(status=200, headers={"set-cookie": "x=1"}, body={"ok": True})
+    else:
+        reply(status=404, body={"error": "not found"})
+elif operation == "mcp":
+    receipt("mcp", {"tool": request["tool"], "arguments": request["arguments"]})
+    reply(output={"echo": request["arguments"]["text"]}, is_error=False)
+else:
+    sys.stderr.write("unsupported operation\n")
+    sys.exit(2)

@@ -1,0 +1,5 @@
+{
+  "description": "Long-running demo job (used to show that disable is refused while a run is active)",
+  "work": {"type": "plugin.demo-fixture", "input": {"text": "slow", "delay": 15}},
+  "enabled": false
+}

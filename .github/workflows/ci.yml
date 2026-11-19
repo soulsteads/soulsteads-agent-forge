@@ -1,0 +1,61 @@
+name: Locked build and installed PostgreSQL smoke
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  installed-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: forge
+          POSTGRES_PASSWORD: fixture-only
+          POSTGRES_DB: forge_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U forge -d forge_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_HOME: ${{ runner.temp }}/forge-cargo
+      CARGO_TARGET_DIR: ${{ runner.temp }}/forge-target
+      FORGE_TEST_STATE: ${{ runner.temp }}/forge-smoke
+      FORGE_BINARY: ${{ runner.temp }}/forge-install/bin/agent-forge
+      TMPDIR: ${{ runner.temp }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Offline publication safety
+        env:
+          FORGE_SOURCE_SCOPE: public
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py' -v
+          python3 scripts/check_public_source.py --revision HEAD --scope "$FORGE_SOURCE_SCOPE"
+          python3 scripts/check_notices.py --revision HEAD
+      - name: Public system dependencies and Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config curl python3
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+      - name: Locked static checks
+        run: |
+          cargo +1.100.0 fmt --all -- --check
+          cargo +1.100.0 clippy --locked --all-targets -j 1
+      - name: Locked installed binary
+        run: cargo +1.100.0 install --locked --path . --root "$RUNNER_TEMP/forge-install" -j 1
+      - name: Locked Rust tests
+        run: cargo +1.100.0 test --locked --all-targets -j 1
+      - name: Offline package notice inclusion
+        run: |
+          cargo +1.100.0 package --list --locked --offline > "$RUNNER_TEMP/forge-package-list.txt"
+          python3 scripts/check_notices.py --package-list "$RUNNER_TEMP/forge-package-list.txt"
+      - name: Real no-model PostgreSQL smoke
+        env:
+          SMOKE_DB_FIXTURE_PASSWORD: fixture-only
+        run: |
+          FORGE_DATABASE_URL="$(printf '%s://%s:%s@%s:%s/%s' postgresql forge "$SMOKE_DB_FIXTURE_PASSWORD" 127.0.0.1 5432 forge_ci)"
+          export FORGE_DATABASE_URL
+          python3 scripts/smoke_installed.py

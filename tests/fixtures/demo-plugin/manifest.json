@@ -1,0 +1,169 @@
+{
+  "id": "demo-fixture",
+  "version": "1.0.0",
+  "api_version": "v2",
+  "description": "Test-only fixture plugin with one contribution of every kind",
+  "capabilities": [
+    "fixture"
+  ],
+  "requires": [],
+  "conflicts": [],
+  "runtime": {
+    "executable": "script:main",
+    "timeout_seconds": 20
+  },
+  "contributions": [
+    {
+      "kind": "job",
+      "id": "daily",
+      "metadata": {
+        "description": "Scheduled demo job"
+      }
+    },
+    {
+      "kind": "job",
+      "id": "slow",
+      "metadata": {
+        "description": "Long-running demo job"
+      }
+    },
+    {
+      "kind": "workflow",
+      "id": "pipeline"
+    },
+    {
+      "kind": "cli",
+      "id": "hello",
+      "metadata": {
+        "command_path": [
+          "hello"
+        ],
+        "description": "Print a greeting",
+        "disabled_denial": {
+          "status": 3,
+          "message": "demo-fixture is installed but disabled"
+        }
+      }
+    },
+    {
+      "kind": "cli",
+      "id": "fail",
+      "metadata": {
+        "command_path": [
+          "fail"
+        ],
+        "description": "Exit nonzero"
+      }
+    },
+    {
+      "kind": "api",
+      "id": "web",
+      "metadata": {
+        "max_body_bytes": 1024,
+        "routes": [
+          {
+            "method": "GET",
+            "path": "/status",
+            "capability": "read"
+          },
+          {
+            "method": "POST",
+            "path": "/echo"
+          },
+          {
+            "method": "GET",
+            "path": "/html"
+          },
+          {
+            "method": "GET",
+            "path": "/header-injection"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "mcp",
+      "id": "echo",
+      "metadata": {
+        "tool_name": "echo",
+        "description": "Echo text back",
+        "read_only": true,
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "kind": "dashboard",
+      "id": "page",
+      "metadata": {
+        "routes": [
+          {
+            "path": "home",
+            "label": "Demo Plugin",
+            "entry": "asset:page-js",
+            "stylesheet": "asset:page-css"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "assets",
+      "id": "static",
+      "metadata": {
+        "resources": [
+          "asset:page-js",
+          "asset:page-css"
+        ]
+      }
+    }
+  ],
+  "resource_declarations": [
+    {
+      "kind": "script",
+      "id": "main",
+      "path": "bin/demo-plugin",
+      "digest": "sha256:f9ab340566c5ae822d2d5c2a1590308e30c3984be73608a75b4090681b8e85f1"
+    },
+    {
+      "kind": "job",
+      "id": "daily",
+      "path": "jobs/daily.json",
+      "digest": "sha256:70db3197ca315ed9fcb71c69a1707f9a94350a5de026776e15be926fe5ad2f3c"
+    },
+    {
+      "kind": "job",
+      "id": "slow",
+      "path": "jobs/slow.json",
+      "digest": "sha256:4f464cad4a4356e2567fe897429b0fc0167ec91a1b83c31fde1f3f8579672165"
+    },
+    {
+      "kind": "workflow",
+      "id": "pipeline",
+      "path": "flows/pipeline.json",
+      "digest": "sha256:820c024551714ee104f030736af296521c6488638e9aa7552f8f19753c03938b"
+    },
+    {
+      "kind": "asset",
+      "id": "page-js",
+      "path": "ui/page.js",
+      "digest": "sha256:28bdec04fde40f846e8914296c74f1c05b4b488cb9ef73b1bf9850694c7c154e"
+    },
+    {
+      "kind": "asset",
+      "id": "page-css",
+      "path": "ui/page.css",
+      "digest": "sha256:3de38f2ae50659a42991d9db46c055bd57d36434ba5347261dce9191de3c4a9c"
+    }
+  ]
+}

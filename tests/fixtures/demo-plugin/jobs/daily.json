@@ -1,0 +1,6 @@
+{
+  "description": "Scheduled demo job (disabled until an operator enables it)",
+  "work": {"type": "plugin.demo-fixture", "input": {"text": "scheduled"}},
+  "schedule": {"cron": "* * * * *", "timezone": "UTC"},
+  "enabled": false
+}
