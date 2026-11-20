@@ -1,6 +1,6 @@
 [package]
 name = "soulsteads-agent-forge"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ include = [
     "examples/rust-pr-review/README.md",
     "examples/rust-pr-review/import.json",
     "examples/rust-pr-review/review_packet.py",
-    "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md",
+    "Cargo.toml", "Cargo.lock", "README.md", "CHANGELOG.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md",
 ]
 
 [lib]

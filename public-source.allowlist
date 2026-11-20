@@ -1,8 +1,10 @@
 .github/workflows/ci.yml
 .gitignore
+CHANGELOG.md
 Cargo.lock
 Cargo.toml
 LICENSE
+NOTICE
 README.md
 THIRD_PARTY_NOTICES.md
 assets/banner.svg
