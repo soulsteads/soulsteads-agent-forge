@@ -1,0 +1,27 @@
+{
+  "format": "forge-definitions/v1",
+  "work": [
+    {
+      "id": "release-readiness",
+      "enabled": true,
+      "definition": {
+        "type": "workflow",
+        "input": {
+          "params": { "task": "example checklist ready" },
+          "steps": [
+            {
+              "id": "produce",
+              "action": { "type": "echo", "input": { "text": { "$ref": "/params/task" } } }
+            },
+            {
+              "id": "consume",
+              "needs": ["produce"],
+              "action": { "type": "echo", "input": { "text": "Observed: ${/steps/produce/output/text}" } }
+            }
+          ],
+          "output": { "report": { "$ref": "/steps/consume/output/text" } }
+        }
+      }
+    }
+  ]
+}

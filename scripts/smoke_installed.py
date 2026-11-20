@@ -171,7 +171,17 @@ def main():
 
                 page.goto(url)
                 connect()
+                nav_links = page.locator('#forge-navigation a[data-view]:not([data-plugin-nav])')
+                icons = nav_links.locator('.nav-icon[aria-hidden="true"]')
+                assert nav_links.count() > 0
+                assert all(link.locator('.nav-icon[aria-hidden="true"]').count() == 1
+                           for link in nav_links.all()), 'each core link needs one decorative icon'
+                glyphs = icons.all_text_contents()
+                assert all(glyphs) and len(set(glyphs)) == len(glyphs), 'expected distinct nonempty icons'
                 page.get_by_role('link', name='Workflows', exact=True).click()
+                expect(page.locator('#wf-empty')).to_contain_text('Create a workflow')
+                expect(page.locator('#wf-builder')).to_have_count(0)
+                page.get_by_role('link', name='+ New workflow', exact=True).click()
                 page.get_by_role('button', name='Edit as JSON', exact=True).click()
                 raw = page.locator('#wf-raw')
 
@@ -204,9 +214,51 @@ def main():
                 expect(diag).to_contain_text('Valid: 3 step(s)')
                 page.locator('#wf-id').fill(work_id)
                 page.get_by_role('button', name='Create workflow', exact=True).click()
-                expect(page.get_by_role('heading', name=f'Workflow {work_id}', exact=True)).to_be_visible()
+                expect(page.get_by_role('heading', name=work_id, exact=True)).to_be_visible()
                 work = cli('workflows', 'show', work_id, '--json')
                 assert work['id'] == work_id and work['definition'] == definition
+                expect(page.locator('#wf-schedules')).to_contain_text('No schedules')
+                page.get_by_role('link', name='+ Add schedule', exact=True).click()
+                expect(page.locator('#sc-work')).to_have_value(work_id)
+                page.locator('#sc-name').fill('studio-annual')
+                # Target a date months away, so this UI test never executes the schedule.
+                page.locator('#sc-cron').fill('0 0 1 1 *' if time.gmtime().tm_mon != 1 else '0 0 1 7 *')
+                page.locator('#sc-tz').fill('UTC')
+                page.locator('#sc-check').click()
+                expect(page.locator('#sc-preview')).to_contain_text('Next due ticks')
+                page.locator('#sc-submit').click()
+                page.wait_for_url('**/#/schedules/operator.studio-annual')
+                item = cli('schedules', 'show', 'operator.studio-annual', '--json')
+                assert item['context']['work_id'] == work_id
+                page.get_by_role('link', name='Workflows', exact=True).click()
+                page.locator('#wf-search').fill('no-match')
+                expect(page.locator('#wf-empty')).to_have_text('No workflows match these filters.')
+                page.locator('#wf-search').fill('NESTED')
+                page.locator('#wf-state').select_option('disabled')
+                expect(page.locator('#wf-empty')).to_be_visible()
+                page.locator('#wf-state').select_option('enabled')
+                expect(page.locator('#wf-table')).to_contain_text(work_id)
+                page.locator('#wf-search').clear()
+                page.locator('#wf-state').select_option('')
+                page.screenshot(path=str(state / 'workflow-library.png'), full_page=True)
+                page.get_by_role('link', name=work_id, exact=True).click()
+                expect(page.locator('#wf-schedules')).to_contain_text('operator.studio-annual')
+                nested_step = page.locator('.wf-step').filter(has_text='Reads from seed')
+                nested_step.locator('summary').click()
+                expect(nested_step.locator('pre')).to_be_visible()
+                expect(nested_step.locator('pre')).to_contain_text('/steps/seed/output/text')
+                page.screenshot(path=str(state / 'workflow-detail.png'), full_page=True)
+                page.set_viewport_size({'width': 375, 'height': 850})
+                assert page.evaluate('document.documentElement.scrollWidth === innerWidth'), 'workflow detail overflows on mobile'
+                page.screenshot(path=str(state / 'workflow-mobile.png'), full_page=True)
+                navigation = page.get_by_role('button', name='Navigation', exact=True)
+                navigation.click()
+                page.get_by_role('link', name='Workflows', exact=True).locator('.nav-icon').click()
+                expect(navigation).to_have_attribute('aria-expanded', 'false')
+                expect(page.locator('#wf-table')).to_contain_text(work_id)
+                assert page.evaluate('document.documentElement.scrollWidth === innerWidth'), 'workflow library overflows on mobile'
+                page.set_viewport_size({'width': 1280, 'height': 720})
+                page.get_by_role('link', name=work_id, exact=True).click()
                 page.get_by_role('button', name='Run workflow', exact=True).click()
                 page.wait_for_url('**/#/runs/*')
                 run_id = page.url.rsplit('/', 1)[-1]
@@ -224,6 +276,13 @@ def main():
                     ('forge_inspect', {'run_id': run_id}))
                 assert validated['valid'] and validated['steps'][1]['action'] == 'workflow'
                 assert mcp_work == work and mcp_run == run
+                page.get_by_role('link', name=work_id, exact=True).click()
+                page.get_by_role('link', name='View run history →', exact=True).click()
+                expect(page.locator('#runs-work')).to_have_value(work_id)
+                expect(page.locator('#runs-results')).to_contain_text('SUCCESS')
+                page.goto(f'{url}/#/runs/{run_id}')
+                if not page.evaluate('window.forge.connected()'):
+                    connect()
                 before = cli('runs', 'list')
                 assert [row['run_id'] for row in before] == [run_id]
                 save('nested-before-restart.json', {
@@ -249,7 +308,8 @@ def main():
                 return {'passed': True, 'work_id': work_id, 'manual_run': run_id,
                         'output': expected, 'browser': browser.version,
                         'mcp_tools': ['forge_validate', 'forge_work', 'forge_inspect'],
-                        'restart_no_redispatch': True, 'external_effects': 0}
+                        'restart_no_redispatch': True, 'external_effects': 0,
+                        'studio_schedule': 'operator.studio-annual', 'mobile_layout_checked': True}
             finally:
                 browser.close()
 

@@ -1,38 +1,38 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Forge · Operations</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="/assets/forge-ui.css">
 <link rel="stylesheet" href="/assets/forge-base.css">
+<link rel="stylesheet" href="/assets/forge-ui.css">
 <body class="dashboard">
 <header class="app-sidebar">
-  <h1>Agent Forge</h1>
+  <div class="app-brand"><span class="brand-mark" aria-hidden="true">F</span><div><h1>Agent Forge</h1><span>Operator console</span></div></div>
   <button id="forge-navigation-toggle" type="button" aria-controls="forge-navigation" aria-expanded="true" hidden>Navigation</button>
   <nav id="forge-navigation" aria-label="Views">
     <div class="nav-group" role="group" aria-labelledby="nav-monitor">
       <h2 id="nav-monitor">Monitor</h2>
       <ul>
-        <li><a href="#/overview" data-view="overview">Overview</a></li>
-        <li><a href="#/runs" data-view="runs">Runs</a></li>
-        <li><a href="#/agents" data-view="agents">Agents</a></li>
-        <li><a href="#/queues" data-view="queues">Queues</a></li>
+        <li><a href="#/overview" data-view="overview"><span class="nav-icon" aria-hidden="true">◆</span><span>Overview</span></a></li>
+        <li><a href="#/runs" data-view="runs"><span class="nav-icon" aria-hidden="true">▶</span><span>Runs</span></a></li>
+        <li><a href="#/agents" data-view="agents"><span class="nav-icon" aria-hidden="true">◎</span><span>Agents</span></a></li>
+        <li><a href="#/queues" data-view="queues"><span class="nav-icon" aria-hidden="true">≡</span><span>Queues</span></a></li>
       </ul>
     </div>
     <div class="nav-group" role="group" aria-labelledby="nav-work">
       <h2 id="nav-work">Manage work</h2>
       <ul>
-        <li><a href="#/workflows" data-view="workflows">Workflows</a></li>
-        <li><a href="#/schedules" data-view="schedules">Schedules</a></li>
-        <li><a href="#/approvals" data-view="approvals">Approvals</a></li>
-        <li><a href="#/operations" data-view="operations">Operations</a></li>
+        <li><a href="#/workflows" data-view="workflows"><span class="nav-icon" aria-hidden="true">⑃</span><span>Workflows</span></a></li>
+        <li><a href="#/schedules" data-view="schedules"><span class="nav-icon" aria-hidden="true">▤</span><span>Schedules</span></a></li>
+        <li><a href="#/approvals" data-view="approvals"><span class="nav-icon" aria-hidden="true">✓</span><span>Approvals</span></a></li>
+        <li><a href="#/operations" data-view="operations"><span class="nav-icon" aria-hidden="true">⌘</span><span>Operations</span></a></li>
       </ul>
     </div>
     <div class="nav-group" role="group" aria-labelledby="nav-configure">
       <h2 id="nav-configure">Configure</h2>
       <ul>
-        <li><a href="#/skills" data-view="skills">Skills</a></li>
-        <li><a href="#/providers" data-view="providers">Providers</a></li>
-        <li><a href="#/settings" data-view="settings">Settings</a></li>
-        <li><a href="#/transfer" data-view="transfer">Transfer</a></li>
-        <li><a href="#/plugins" data-view="plugins">Plugins</a></li>
+        <li><a href="#/skills" data-view="skills"><span class="nav-icon" aria-hidden="true">✦</span><span>Skills</span></a></li>
+        <li><a href="#/providers" data-view="providers"><span class="nav-icon" aria-hidden="true">⌬</span><span>Providers</span></a></li>
+        <li><a href="#/settings" data-view="settings"><span class="nav-icon" aria-hidden="true">⚙︎</span><span>Settings</span></a></li>
+        <li><a href="#/transfer" data-view="transfer"><span class="nav-icon" aria-hidden="true">⇄</span><span>Transfer</span></a></li>
+        <li><a href="#/plugins" data-view="plugins"><span class="nav-icon" aria-hidden="true">▦</span><span>Plugins</span></a></li>
       </ul>
     </div>
     <div id="forge-plugin-navigation" class="nav-group" role="group" aria-labelledby="nav-extensions" hidden>
@@ -41,8 +41,11 @@
     </div>
   </nav>
 </header>
-<main id="forge-main" tabindex="-1"><p>Owned work. Durable execution. Inspectable outcomes.</p>
-<section><form id="connect"><label>Bearer token<input id="token" type="password" autocomplete="off" required></label><button>Connect</button><button type="button" id="refresh">Refresh</button></form><small>Token stays in this tab's memory. No browser storage. Reload requires signing in again.</small><p id="status" role="status">Disconnected. Enter a scoped token to load canonical state.</p></section>
+<main id="forge-main" tabindex="-1">
+<section class="connection-bar" aria-label="Console connection">
+  <div><p class="eyebrow">Console connection</p><p id="status" role="status">Disconnected. Enter a scoped token to load canonical state.</p></div>
+  <div><form id="connect"><label class="connection-token">Bearer token<input id="token" type="password" autocomplete="off" required aria-describedby="token-help"></label><button>Connect</button><button type="button" id="refresh">Refresh</button></form><small id="token-help">Token stays in this tab. Reload requires signing in again.</small></div>
+</section>
 <section class="ops" id="work"><h2>Work definitions</h2><p>Definitions are immutable. Register a new identity when intent changes; disable old work explicitly.</p><form id="register"><label>Work ID<input name="work_id" required pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}"></label><label>Type<select name="type"><option>echo</option><option>fail</option><option>model</option></select></label><label>Input JSON<textarea name="input">{"text":"Hello from Forge"}</textarea></label><button>Register work</button></form><details open id="runner-panel"><summary>Native harness runner profiles (read-only, operator configured)</summary><div class="scroll"><table><thead><tr><th>Profile</th><th>Adapter</th><th>Version</th><th>Model</th><th>Permission</th><th>Available</th><th>Capabilities</th></tr></thead><tbody id="runners"></tbody></table></div><p><small>Workflows select a profile by name only. Executables, arguments and environment cannot be supplied by definitions or inputs. Adapter capability matrix:</small></p><pre id="runner-matrix"></pre></details><details><summary>Available type schemas</summary><pre id="type-schemas"></pre></details><label>Run parameters JSON (merged with definition defaults)<textarea id="run-params">{}</textarea></label><div class="scroll"><table><thead><tr><th>ID</th><th>Type</th><th>Enabled</th><th>Actions</th></tr></thead><tbody id="works"></tbody></table></div></section>
 <section class="ops" id="schedules"><h2>Schedules</h2><p>Open the <a href="#/schedules">Schedules view</a> for details, timing preview and occurrence history linked to runs.</p><form id="schedule"><label>Name<input name="name" required></label><label>Work ID<input name="work_id" required></label><label>Cron<input name="cron" value="0 * * * *" required></label><label>IANA time zone<input name="tz" value="UTC" required></label><label>Invocation parameters JSON<textarea name="params">{}</textarea></label><button>Create schedule</button></form><p>Five fields: minute first. Six fields: second first. Missed executions are not automatically backfilled. Choose <b>occurrences</b> to read recent due firings and each admitted run's status and output in Selected evidence.</p><div id="schedule-list"></div></section>
 <section class="ops" id="runs"><h2>Run history and failures</h2><p>Cancellation is cooperative. An active external operation may finish. Unknown effects require provider reconciliation.</p><div id="run-list">No state loaded.</div><h3>Selected evidence</h3><form id="inspect-detail"><label>Run ID<input name="run_id" required></label><label>Record<select name="kind"><option value="run">Run overview</option><option value="effect">Exact effect</option><option value="step">Exact native step</option></select></label><label>Effect ID or step number<input name="selector"></label><button>Read evidence</button></form><p>Large nested values are marked summaries. Use an exact effect or native step selector to read the complete record.</p><pre id="detail">Choose Inspect to see step timings, outputs, artifacts, logs, and diagnostics.</pre></section>

@@ -97,11 +97,11 @@ function offlinePage() {
     list() {
       const row = $("sc-table").findAll(n => Object.hasOwn(n.attributes, "data-schedule"))[0];
       return { filter: $("sc-tag-filter").value, identity: row.attributes["data-schedule"],
-        cells: row.children.map(text), links: links(row), form: {
+        cells: row.children.map(text), links: links(row), form: $("sc-name") ? {
           name: $("sc-name").value, work: $("sc-work").value,
           choices: $("sc-work").children.map(n => n.value),
           cron: $("sc-cron").value, timezone: $("sc-tz").value, params: $("sc-params").textContent,
-        } };
+        } : null };
     },
     detail: () => ({ head: text($("sc-head")), history: text($("sc-occurrences")), links: links($("sc-occurrences")) }),
     detailMounted: () => Boolean($("sc-head")),
@@ -221,7 +221,7 @@ test("current list refusal retains its diagnostic after an older list rejects", 
   await older;
   assert.equal(f.diagnostic(), "current tagged list refused");
   assert.deepEqual(f.globals, ["Failed / state may be stale: current tagged list refused"]);
-  assert.deepEqual(f.list(), before);
+  assert.deepEqual(f.list(), { ...before, form: null });
 });
 
 test("current Refresh statistics refusal remains visible with the last rendered list", async () => {
@@ -255,6 +255,30 @@ test("a retired list result cannot replace the actual detail and its occurrence 
   await older;
   assert.equal(f.detailMounted(), true);
   assert.deepEqual(f.detail(), before);
+});
+
+test("opening schedule detail retires the create form but keeps the list on refusal", async () => {
+  const f = await mounted(), before = f.list();
+  assert.ok(before.form);
+  const detail = f.navigate("#/schedules/operator.team.latest");
+  const whileLoading = f.list();
+  assert.equal(f.calls[2].method, "schedule_show");
+  f.calls[2].reject(new Error("current detail refused"));
+  await detail;
+  assert.deepEqual(whileLoading, { ...before, form: null });
+  assert.deepEqual(f.list(), { ...before, form: null });
+  assert.equal(f.diagnostic(), "current detail refused");
+});
+
+test("a retired detail response cannot replace a newly mounted schedule form", async () => {
+  const f = await mounted(), detail = f.navigate("#/schedules/operator.team.latest");
+  const list = f.navigate(latestQuery);
+  await completeList(f, 3, latest, "latest");
+  await list;
+  answer(f, 2, "schedule_show", latest.detail, { name: "operator.team.latest", limit: 20 });
+  await detail;
+  assert.equal(f.detailMounted(), false);
+  expectLatest(f, "latest", { name: "latest-copy", work: "latest.echo" });
 });
 
 test("a retired list rejection cannot replace the latest detail refusal", async () => {
