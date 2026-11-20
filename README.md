@@ -62,7 +62,7 @@ FORGE_TOKEN=$(jq -er '.actors.operator.token' "$FORGE_HOME/config.json") && expo
 
 ### 2. Run a two-step workflow
 
-Use the included [release-readiness import bundle](examples/release-readiness/import.json). The first step echoes a parameter; the second reads that step's output and returns a report. From the source checkout, preview, import, and run it:
+Use the included [release-readiness import bundle](examples/release-readiness/import.json). The first step echoes a parameter; the second reads that step's output and returns a report. From the root of the Git checkout or the unpacked Cargo source package, preview, import, and run it:
 
 ```sh
 agent-forge definitions import examples/release-readiness/import.json --dry-run
