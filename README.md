@@ -8,6 +8,10 @@ Agent Forge is a self-hosted workflow runner for operators and teams. Define a j
 
 **Early preview.** Forge targets Linux, requires PostgreSQL, and listens on loopback only. The example below needs no model, provider key, harness, or plugin.
 
+[![Agent Forge dashboard showing a successful release-readiness workflow and its three completed steps](docs/images/forge-dashboard.png)](docs/images/forge-dashboard.png)
+
+*The Runs view showing a completed workflow in a demo Forge home.*
+
 ## Quick start
 
 You need **Rust 1.97 or later**, a **C compiler**, an **empty, dedicated PostgreSQL database**, and `jq` for the token command below. See the [tested setup](docs/support.md#tested-preview-path) for what has been exercised.
@@ -85,6 +89,7 @@ The history can be empty until the first due time. After that, follow the occurr
 | I want to… | Start here |
 | --- | --- |
 | Author workflows, pass parameters, or inspect results | [Workflow guide](docs/flows.md) |
+| Configure a credential for a specific workflow step | [Workflow credentials](docs/flows.md#workflow-credentials) |
 | Configure the service, actor permissions, CLI, API, or MCP | [Operations guide](docs/operations.md) |
 | Recover from an interruption, back up a home, or restore it | [Backup and recovery](docs/recovery.md) |
 | Connect an agent harness or extend Forge | [Harnesses](docs/harness.md) · [Plugins](docs/plugins.md) · [Agent operating skill](skills/forge-operations/SKILL.md) |

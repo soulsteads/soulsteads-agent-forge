@@ -61,6 +61,10 @@ impl Core {
             return Ok(());
         }
         self.permit(actor, capability, Some(kind))?;
+        if kind == crate::workflow_credentials::KIND {
+            self.credential_grant(actor, definition)?;
+            return Ok(());
+        }
         if kind == "harness" {
             if !jsonschema::is_valid(
                 &crate::flow_schema::harness_catalog()["schema"],
@@ -179,6 +183,9 @@ impl Core {
                     .ok_or(Invalid("model unavailable"))?,
             )?,
             "echo" | "fail" | "approval" => Value::Null,
+            crate::workflow_credentials::KIND => {
+                serde_json::to_value(self.credential_grant(actor, definition)?)?
+            }
             "harness" => match input["profile"].as_str().filter(|p| !p.contains("${")) {
                 // A templated profile name is resolved and bound again at its own dispatch.
                 Some(name) => json!({"profile":name,"runner":self.runner(name)?}),

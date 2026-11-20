@@ -14,6 +14,100 @@ Actions can be inline `echo`, `fail`, configured `model`, configured `plugin.*`,
 
 A workflow returns `{"steps":{"produce":{"output":...},"consume":{"output":...}},"output":...}`. Without an output mapping, `output` is the last step's output. All actions run sequentially in authored order; dependencies constrain data access. Unsupported gates, foreach, arbitrary expressions, failure-continuation rules, shell scripts, or legacy reference fields are rejected. Explicit executable plugins remain the extension boundary.
 
+## Workflow credentials
+
+`credential_check` sends a Bearer-authenticated `GET` to a fixed, operator-configured
+URL and returns only its successful HTTP status, for example `{"status":200}`.
+Use it for a single read-only check, not for publishing, arbitrary HTTP, feeding a
+response body into a workflow, or authenticating an agent or plugin. A grant
+names one actor, immutable workflow ID, and direct step ID. The workflow supplies
+only a literal alias. Request URLs, headers, a body, and template substitutions
+are not accepted from work definitions or invocation parameters.
+
+Use a dedicated Forge home with no configured or installed executable plugins
+and no native harness runners. Forge refuses to combine them with workflow grants
+in the same home. Run the service under an OS account trusted with the credentials;
+systemd credentials are **not** isolated from other processes of that same user
+or from root. Use a separate service account if other same-user workloads are not
+trusted. Homes without grants keep their existing execution behavior; Forge never
+passes `CREDENTIALS_DIRECTORY` to executable plugins.
+
+While Forge is stopped, add `credential_check` to the intended actor's `types`
+in the private `config.json`. Add an operator-managed `workflow_credentials`
+object (this example assumes an existing actor named `operator`):
+
+```json
+{
+  "release-read": {
+    "actor": "operator",
+    "work_id": "release-readiness",
+    "step_id": "check-api",
+    "url": "https://api.example.com/release/status"
+  }
+}
+```
+
+The object above is the **value of** `workflow_credentials`. Each key is also the
+systemd credential ID. The URL must use HTTPS with normal certificate validation,
+or HTTP to the literal loopback addresses `127.0.0.1` or `[::1]` for a trusted
+local endpoint. User info, query strings, fragments, proxies, redirects, and HTTP
+retries are not used. Loopback HTTP trusts whichever process binds the configured
+port; use it only for a trusted local service. Choose a read-only, narrowly scoped
+token for the endpoint. Keep secrets out of the URL path as well: the URL is part
+of the grant metadata retained in backups.
+
+Keep both the encrypted files and the systemd credential directory outside the
+Forge home, including through bind mounts or alternate paths. Never put the
+encrypted files in the repository. For a systemd user service named
+`agent-forge`, one way to provision an encrypted file
+without putting the token in a command argument or shell history is:
+
+```sh
+install -d -m 700 "$HOME/.config/agent-forge-credentials"
+systemd-ask-password 'Release API bearer token' |
+  systemd-creds encrypt --user --name=release-read - \
+    "$HOME/.config/agent-forge-credentials/release-read.cred"
+systemctl --user edit agent-forge.service
+```
+
+Add the following drop-in, substituting the actual absolute encrypted-file path
+(only a path, never a token). Start or restart the service to load it:
+
+```ini
+[Service]
+LoadCredentialEncrypted=release-read:/absolute/private/path/release-read.cred
+```
+
+Save this definition as `release-readiness.json`:
+
+```json
+{
+  "type": "workflow",
+  "input": {
+    "steps": [
+      {"id": "check-api", "action": {"type": "credential_check", "input": {"credential": "release-read"}}}
+    ]
+  }
+}
+```
+
+```sh
+agent-forge workflows create release-readiness --file release-readiness.json
+agent-forge workflows run release-readiness --key first-check --wait
+```
+
+The same grant is enforced when the run starts manually or from a schedule. A
+missing file or mismatched grant fails before the outbound request. Audit records
+identify the actor, run, step and alias; the credential and response body never
+enter run output, workflow exports, or normal Forge backups. A non-success status
+or transport failure stops the step; Forge retains the standard unresolved effect
+receipt rather than automatically replaying the request. For rotation, replace
+the encrypted file safely and restart the unit. For revocation, disable the token
+at the upstream service, remove the grant and systemd binding, and restart Forge.
+Forge backup and restore preserve grants, not credentials: arrange separate
+reprovisioning through the issuer. Encrypted systemd files may be bound to the
+original account and host.
+
 ## Real agent tool loops
 
 An operator might configure `plugin.lookup` with an input schema accepting a `query` string. An agent definition can then be:

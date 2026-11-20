@@ -925,11 +925,12 @@ static AMBIENT: RwLock<Option<Ambient>> = RwLock::new(None);
 /// Whether `name` is the variable that holds a credential Forge itself uses (the
 /// target of `database.url_env`), which no plugin may be given.
 pub fn withheld_env(name: &str) -> bool {
-    AMBIENT
-        .read()
-        .ok()
-        .and_then(|a| a.as_ref().map(|(_, _, w)| w.iter().any(|n| n == name)))
-        .unwrap_or(false)
+    name == crate::workflow_credentials::DIRECTORY_ENV
+        || AMBIENT
+            .read()
+            .ok()
+            .and_then(|a| a.as_ref().map(|(_, _, w)| w.iter().any(|n| n == name)))
+            .unwrap_or(false)
 }
 /// `PATH` of a runner environment that does not otherwise define one.
 pub fn harness_default_path() -> String {
