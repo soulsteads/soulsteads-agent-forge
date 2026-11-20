@@ -12,7 +12,7 @@ function section(start, end) {
 }
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.textContent = ""; this.listeners = {}; this.attrs = {}; this.value = ""; }
-  setAttribute(name, value) { this.attrs[name] = value; if (name === "value") this.value = value; }
+  setAttribute(name, value) { this.attrs[name] = value; if (name === "value") this.value = value; if (name === "disabled") this.disabled = true; }
   addEventListener(event, listener) { this.listeners[event] = listener; }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
@@ -257,27 +257,33 @@ test("a departed list cannot publish before the return hash dispatches its loade
   assert.equal(f.body.children.length, 0);
 });
 
-test("returning from detail to the library retires detail controls before the snapshot settles", async () => {
-  const deferred = [];
-  const f = page("", (method) => {
-    if (method === "work") return { id: "daily", enabled: true, definition: { type: "workflow", input: { steps: [] } } };
-    if (method === "runs") return { runs: [] };
-    if (method === "schedules") return [];
-    if (method === "snapshot") return new Promise((resolve, reject) => deferred.push({ resolve, reject }));
-    assert.fail(`unexpected request ${method}`);
+for (const [destination, query] of [["library", ""], ["builder", "mode=new"]]) {
+  test(`detail to ${destination}: retire controls while loading and clear the loading status on failure`, async () => {
+    let rejectSnapshot;
+    const f = page("", (method) => {
+      if (method === "work") return { id: "daily", enabled: true, definition: { type: "workflow", input: { steps: [] } } };
+      if (method === "runs") return { runs: [] };
+      if (method === "schedules") return [];
+      if (method === "snapshot") return new Promise((_, reject) => { rejectSnapshot = reject; });
+      assert.fail(`unexpected request ${method}`);
+    });
+    const loading = () => walk(f.body).some((el) => el.attrs.role === "status" && el.textContent.startsWith("Loading"));
+    await f.detail("daily");
+    assert.ok(f.byId("wf-run") && f.byId("wf-toggle"));
+    delete f.route.id;
+    f.route.query = new URLSearchParams(query);
+    const pending = f.load();
+    assert.equal(f.byId("wf-run"), undefined);
+    assert.equal(f.byId("wf-toggle"), undefined);
+    assert.equal(loading(), true);
+    rejectSnapshot(new Error("snapshot unavailable"));
+    await pending;
+    assert.equal(f.error(), "snapshot unavailable");
+    assert.equal(loading(), false, "a failed request must not still say it is loading");
+    assert.equal(f.byId("wf-run"), undefined);
+    assert.equal(f.byId("wf-toggle"), undefined);
   });
-  await f.detail("daily");
-  assert.ok(f.byId("wf-run") && f.byId("wf-toggle"));
-  delete f.route.id;
-  const pending = f.load();
-  const retainedWhileLoading = Boolean(f.byId("wf-run")) || Boolean(f.byId("wf-toggle"));
-  deferred[0].reject(new Error("library unavailable"));
-  await pending;
-  assert.equal(retainedWhileLoading, false);
-  assert.equal(f.byId("wf-run"), undefined);
-  assert.equal(f.byId("wf-toggle"), undefined);
-  assert.equal(f.error(), "library unavailable");
-});
+}
 
 test("a failed reload after a saved toggle reports in the mounted workflow alert", async () => {
   let workReads = 0;
@@ -297,6 +303,60 @@ test("a failed reload after a saved toggle reports in the mounted workflow alert
   assert.match(f.error(), /reload unavailable/);
   assert.match(f.error(), /saved/);
   assert.deepEqual(f.statuses, ["Failed / state may be stale: reload unavailable"]);
+});
+
+test("a pending workflow toggle admits only one change, even if the same detail remounts", async () => {
+  const writes = [], reloads = [];
+  let saved = false;
+  const record = (enabled) => ({ id: "daily", enabled, definition: { type: "workflow", input: { steps: [] } } });
+  const f = page("", (method, params) => {
+    if (method === "work") return saved ? new Promise((resolve) => reloads.push(resolve)) : record(true);
+    if (method === "enable") return new Promise((resolve) => writes.push({ params, resolve }));
+    if (method === "runs") return { runs: [] };
+    if (method === "schedules") return [];
+    assert.fail(`unexpected request ${method}`);
+  });
+  await f.detail("daily");
+  const toggle = f.byId("wf-toggle");
+  const action = toggle.listeners.click();
+  assert.equal(writes.length, 1);
+  assert.equal(toggle.disabled, true, "disable the button before awaiting the write");
+  await toggle.listeners.click();
+  await f.detail("daily");
+  const remounted = f.byId("wf-toggle");
+  assert.notEqual(remounted, toggle);
+  assert.equal(remounted.disabled, true);
+  await remounted.listeners.click();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].params.enabled, false);
+  saved = true;
+  writes[0].resolve({});
+  await new Promise(setImmediate);
+  assert.equal(reloads.length, 1, "reconcile the mounted workflow after the save");
+  reloads[0](record(false));
+  await action;
+  assert.equal(f.byId("wf-toggle").textContent, "Enable");
+  assert.ok(!f.byId("wf-toggle").disabled);
+});
+
+test("an older work read cannot clear a newer detail for the same workflow", async () => {
+  const reads = [];
+  const f = page("", (method) => {
+    if (method === "work") return new Promise((resolve, reject) => reads.push({ resolve, reject }));
+    if (method === "runs") return { runs: [] };
+    if (method === "schedules") return [];
+    assert.fail(`unexpected request ${method}`);
+  });
+  const older = f.detail("daily"), newer = f.detail("daily");
+  reads[1].resolve({ id: "daily", enabled: false, definition: { type: "workflow", input: { steps: [] } } });
+  await newer;
+  const toggle = f.byId("wf-toggle");
+  assert.equal(toggle.textContent, "Enable");
+  reads[0].reject(new Error("older read unavailable"));
+  await older;
+  assert.equal(f.byId("wf-toggle"), toggle);
+  assert.equal(f.error(), "");
+  assert.deepEqual(f.statuses, []);
 });
 
 test("non-workflow saved work still exposes its complete definition JSON", async () => {

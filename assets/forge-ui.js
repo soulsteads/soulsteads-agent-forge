@@ -300,6 +300,8 @@ async function pluginView(kind) {
 
 // ------------------------------------------------------------------ workflows
 let workflowListRead = 0;
+let workflowDetailRead = 0;
+const pendingWorkflowToggles = new Map();
 function workflowHeading(label, title, description, ...actions) {
   return h("header", { class: "wf-heading" }, h("div", {},
     h("p", { class: "eyebrow", text: label }), h("h2", { text: title }), h("p", { text: description })),
@@ -317,12 +319,15 @@ async function workflowList() {
   const read = ++workflowListRead, generation = routeGeneration;
   const isCurrent = () => generation === routeGeneration && read === workflowListRead && onList();
   const body = $("wf-body");
-  if (body.querySelector("#wf-run") || (!author && body.querySelector("#wf-create"))) body.replaceChildren(h("p", { role: "status", class: "hint", text: "Loading workflows…" }));
+  if (body.querySelector("#wf-run") || body.querySelector("#wf-loading") || (!author && body.querySelector("#wf-create"))) {
+    body.replaceChildren(h("p", { id: "wf-loading", role: "status", class: "hint", text: "Loading workflows…" }));
+  }
   let nextSnapshot;
   try {
     nextSnapshot = await F.call("snapshot");
   } catch (error) {
     if (isCurrent()) {
+      if (body.querySelector("#wf-loading")) body.replaceChildren();
       const message = error.message || String(error);
       alertBox($("wf-alert"), message);
       F.status("Failed / state may be stale: " + message);
@@ -499,18 +504,27 @@ function builder() {
     diag);
 }
 
-async function workflowDetail(id) {
+async function workflowDetail(id, afterToggle = false) {
   const body = $("wf-body");
-  const generation = routeGeneration;
-  const isCurrent = () => {
+  const onDetail = () => {
     const current = parseHash();
-    return generation === routeGeneration && current.view === "workflows" && current.id === id;
+    return current.view === "workflows" && current.id === id;
   };
-  if (!isCurrent()) return;
-  body.replaceChildren(h("p", { role: "status", class: "hint", text: "Loading workflow…" }));
+  if (!onDetail()) return;
+  const read = ++workflowDetailRead, generation = routeGeneration;
+  const isCurrent = () => generation === routeGeneration && read === workflowDetailRead && onDetail();
+  body.replaceChildren(h("p", { id: "wf-loading", role: "status", class: "hint", text: "Loading workflow…" }));
   let w;
   try { w = await F.call("work", { work_id: id }); }
-  catch (error) { if (isCurrent()) { body.replaceChildren(); throw error; } return; }
+  catch (error) {
+    if (isCurrent()) {
+      body.replaceChildren();
+      const message = error.message || String(error);
+      alertBox($("wf-alert"), afterToggle ? "The change was saved, but the workflow could not be reloaded: " + message : message);
+      F.status("Failed / state may be stale: " + message);
+    }
+    return;
+  }
   if (!isCurrent()) return;
   const d = w.definition;
   const runsBox = h("div", { id: "wf-recent" }, h("p", { class: "hint", text: "Loading recent runs…" }));
@@ -545,6 +559,25 @@ async function workflowDetail(id) {
     const r = await F.call("run", { work_id: id, key: keyInput.value, params: JSON.parse(paramsInput.value || "{}") });
     if (isCurrent() && keyInput.isConnected) go("#/runs/" + encodeURIComponent(r.run_id));
   });
+  const pendingToggle = pendingWorkflowToggles.get(id);
+  const toggle = h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable",
+    disabled: Boolean(pendingToggle), onclick: async () => {
+      if (!isCurrent() || pendingWorkflowToggles.has(id)) return;
+      // Keep the write pending across a refresh of the same workflow detail.
+      const attempt = { button: toggle };
+      pendingWorkflowToggles.set(id, attempt);
+      toggle.disabled = true;
+      try {
+        await guarded(diag, async () => {
+          await F.call("enable", { work_id: id, enabled: !w.enabled });
+          if (onDetail()) await workflowDetail(id, true);
+        });
+      } finally {
+        pendingWorkflowToggles.delete(id);
+        attempt.button.disabled = false;
+      }
+    } });
+  if (pendingToggle) pendingToggle.button = toggle;
   const workflow = d.type === "workflow";
   const runHistory = "#/runs?work=" + encodeURIComponent(id);
   body.replaceChildren(
@@ -568,18 +601,7 @@ async function workflowDetail(id) {
         h("label", {}, "Request key (reuse after a lost response; a new key is a new run)", keyInput),
         h("button", { type: "button", text: "New key", onclick: () => { keyInput.value = newKey(); } })),
       h("div", { class: "row-actions" },
-        h("button", { type: "button", id: "wf-run", class: "primary", text: workflow ? "Run workflow" : "Run work", disabled: !w.enabled, onclick: run }),
-        h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable", onclick: () => guarded(diag, async () => {
-          await F.call("enable", { work_id: id, enabled: !w.enabled });
-          if (!isCurrent()) return;
-          try { await workflowDetail(id); }
-          catch (error) {
-            if (!isCurrent()) return;
-            const message = error.message || String(error);
-            alertBox($("wf-alert"), "The change was saved, but the workflow could not be reloaded: " + message);
-            F.status("Failed / state may be stale: " + message);
-          }
-        }) })),
+        h("button", { type: "button", id: "wf-run", class: "primary", text: workflow ? "Run workflow" : "Run work", disabled: !w.enabled, onclick: run }), toggle),
       diag)),
     workflow ? null : h("section", { class: "card", "aria-labelledby": "wf-definition-title" },
       h("h3", { id: "wf-definition-title", text: "Definition" }),
