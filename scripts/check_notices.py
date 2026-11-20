@@ -71,9 +71,18 @@ def check_registry_licenses(entries, expected, cargo_home):
 
 def check_package_list(paths):
     required = {'LICENSE', 'THIRD_PARTY_NOTICES.md'}
+    examples = {
+        'examples/README.md',
+        'examples/release-readiness/import.json',
+        'examples/rust-pr-review/README.md',
+        'examples/rust-pr-review/import.json',
+        'examples/rust-pr-review/review_packet.py',
+    }
     errors = []
     if required - paths:
         errors.append(f'Cargo package omits license files: {sorted(required - paths)}')
+    if examples - paths:
+        errors.append(f'Cargo package omits workflow example files: {sorted(examples - paths)}')
     if any(p.split('/')[0].casefold() in ('internal', '.git', '.serena') for p in paths):
         errors.append('Cargo package includes private material')
     return errors

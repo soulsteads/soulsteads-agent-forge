@@ -116,11 +116,23 @@ class PublicationTests(unittest.TestCase):
         self.write('Cargo.toml', '[package]\ninclude=["src/**"]\n')
         self.assertTrue(check_notices.check(self.root))
 
-    def test_package_list_must_carry_the_consolidated_notice(self):
-        expected = {'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md'}
+    def test_package_list_must_carry_notices_and_linked_example_files(self):
+        notices = {'LICENSE', 'THIRD_PARTY_NOTICES.md'}
+        examples = {
+            'examples/README.md',
+            'examples/release-readiness/import.json',
+            'examples/rust-pr-review/README.md',
+            'examples/rust-pr-review/import.json',
+            'examples/rust-pr-review/review_packet.py',
+        }
+        expected = notices | examples
         self.assertEqual(check_notices.check_package_list(expected), [])
         self.assertTrue(check_notices.check_package_list(expected - {'THIRD_PARTY_NOTICES.md'}))
         self.assertTrue(check_notices.check_package_list(expected | {'internal/private.md'}))
+        for path in sorted(examples):
+            with self.subTest(path=path):
+                self.assertEqual(check_notices.check_package_list(expected - {path}),
+                                 [f'Cargo package omits workflow example files: {[path]}'])
 
     def test_inventory_license_must_match_locked_crate_manifest(self):
         cache = self.root / 'registry/cache/fixture'
