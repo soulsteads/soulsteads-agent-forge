@@ -6,6 +6,7 @@ Cargo.toml
 LICENSE
 README.md
 THIRD_PARTY_NOTICES.md
+assets/banner.svg
 assets/dashboard.html
 assets/forge-base.css
 assets/forge-core.js

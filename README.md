@@ -1,10 +1,31 @@
-# Soulsteads Agent Forge
+<h1 align="center">
+  <img src="assets/banner.svg" alt="Soulsteads Agent Forge" width="880" />
+</h1>
 
-**Run recurring workflows on your own machine, and see exactly what happened.**
+<p align="center">
+  <strong>Run recurring workflows on your own machine. See exactly what happened.</strong>
+</p>
 
-Agent Forge is a self-hosted workflow runner for operators and teams. Define a job, run it on demand or on a schedule, and inspect its steps, outputs, and failures. Use the local dashboard or CLI, or integrate through the authenticated HTTP API or stdio MCP server.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
+  <a href="docs/support.md#requirements"><img src="https://img.shields.io/badge/Rust-1.97%2B-informational?logo=rust" alt="Requires Rust 1.97 or later" /></a>
+  <a href="docs/support.md#tested-preview-path"><img src="https://img.shields.io/badge/status-early%20preview-yellow" alt="Status: early preview" /></a>
+</p>
 
-[Quick start](#quick-start) · [Workflow guide](docs/flows.md) · [Operations](docs/operations.md) · [Backup and recovery](docs/recovery.md)
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/flows.md">Workflow guide</a> ·
+  <a href="docs/operations.md">Operations</a> ·
+  <a href="docs/recovery.md">Backup and recovery</a>
+</p>
+
+## Why Agent Forge?
+
+Use Forge when a job needs to run repeatedly and you want more than a scheduler log. Forge gives operators and teams a record of each run: what started it, which steps finished, and what each step returned.
+
+- **Define the work once.** Write a workflow with explicit steps and inputs. Run it on demand or on a schedule in your chosen time zone.
+- **Inspect the outcome.** Follow a schedule occurrence to its run, read step output, and see where a failure or uncertain effect needs attention.
+- **Operate from the interface you prefer.** Use the local web dashboard or CLI, or integrate through the authenticated HTTP API or stdio MCP server. They use the same actor permissions.
 
 **Early preview.** Forge targets Linux, requires PostgreSQL, and listens on loopback only. The example below needs no model, provider key, harness, or plugin.
 
@@ -89,5 +110,7 @@ The history can be empty until the first due time. After that, follow the occurr
 | Recover from an interruption, back up a home, or restore it | [Backup and recovery](docs/recovery.md) |
 | Connect an agent harness or extend Forge | [Harnesses](docs/harness.md) · [Plugins](docs/plugins.md) · [Agent operating skill](skills/forge-operations/SKILL.md) |
 | Check requirements, validate a build, or export source | [Requirements and verification](docs/support.md) · [Source snapshots](docs/source-release.md) |
+
+## License
 
 Licensed under [Apache-2.0](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for bundled notices.
