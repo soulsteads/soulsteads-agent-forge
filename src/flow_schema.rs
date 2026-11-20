@@ -147,6 +147,21 @@ fn validate_definition(definition: &Value, depth: usize, total: &mut usize) -> R
         "harness" => validate_harness(input),
         "echo" | "fail" | "model" => Ok(()),
         "approval" => crate::approvals::validate_input(input),
+        crate::workflow_credentials::KIND => {
+            ensure!(
+                depth == 1,
+                "credential checks require a direct workflow step"
+            );
+            ensure!(
+                input.len() == 1
+                    && input
+                        .get("credential")
+                        .and_then(Value::as_str)
+                        .is_some_and(crate::workflow_credentials::valid_alias),
+                "credential checks require a literal credential alias"
+            );
+            Ok(())
+        }
         kind if kind.starts_with("plugin.") && kind.len() > 7 => Ok(()),
         _ => bail!("unsupported authored flow action type"),
     }

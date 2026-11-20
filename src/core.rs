@@ -65,6 +65,8 @@ pub struct Policy {
     /// Operator-approved native harness runners; workflows select them only by name.
     #[serde(default)]
     pub runners: BTreeMap<String, crate::harness::RunnerProfile>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub workflow_credentials: BTreeMap<String, crate::workflow_credentials::Grant>,
     /// Optional runtime sections; absent sections use the resolver defaults.
     #[serde(default, skip_serializing_if = "is_default")]
     pub database: settings::DatabaseConfig,
@@ -152,6 +154,7 @@ pub fn identifier(value: &str) -> Result<()> {
 }
 /// Every check a policy must pass to load. Messages never contain values.
 pub fn validate_policy(home: &Path, policy: &Policy) -> Result<()> {
+    crate::workflow_credentials::validate_policy(policy)?;
     // Reject malformed runtime sections at load time; the database itself is only
     // required by commands that connect.
     let resolved = Settings::resolve(home.to_path_buf(), policy, &Default::default(), &|_| None)?;
@@ -462,6 +465,7 @@ impl Core {
             }
         }
         v["harness"] = crate::flow_schema::harness_catalog();
+        v[crate::workflow_credentials::KIND] = crate::workflow_credentials::catalog();
         for (name, p) in &self.plugins {
             v[name] = json!({"description":p.description,"schema":p.schema});
         }
@@ -506,6 +510,9 @@ impl Core {
         self.permit(actor, "register", Some(kind))?;
         if kind == "approval" {
             return Err(Invalid("approval is a workflow step, not standalone work").into());
+        }
+        if kind == crate::workflow_credentials::KIND {
+            return Err(Invalid("credential checks require a direct workflow step").into());
         }
         let types = self.types();
         let schema = types.get(kind).ok_or(Invalid("unknown work type"))?["schema"].clone();

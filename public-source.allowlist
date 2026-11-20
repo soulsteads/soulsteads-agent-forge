@@ -14,6 +14,7 @@ assets/forge-ui.js
 assets/forge-views.js
 docs/flows.md
 docs/harness.md
+docs/images/forge-dashboard.png
 docs/operations.md
 docs/plugins.md
 docs/recovery.md
@@ -787,6 +788,7 @@ src/skills.rs
 src/subagents.rs
 src/transfer.rs
 src/work_input.rs
+src/workflow_credentials.rs
 src/workflows.rs
 tests/admission_effects.rs
 tests/dashboard-overview.test.cjs
@@ -809,3 +811,4 @@ tests/safety.rs
 tests/test_acp_qualification.py
 tests/test_export_source.py
 tests/test_publication_checks.py
+tests/workflow_credentials.rs

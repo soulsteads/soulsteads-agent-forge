@@ -656,6 +656,9 @@ impl Core {
                 })?
                 .collect::<std::result::Result<Vec<_>, _>>()?)
         })?;
+        if !rows.is_empty() && !self.policy.workflow_credentials.is_empty() {
+            return refuse("workflow credentials require a Forge home without installed plugins");
+        }
         let known = rows.iter().map(|r| (r.0.clone(), r.1.clone())).collect();
         let paths = self.paths.clone();
         let (removed, _guard) = tokio::task::spawn_blocking(move || {
@@ -866,6 +869,11 @@ impl Core {
     /// The `plugins` capability for a lifecycle operation. A denied attempt is audited
     /// (actor, operation, target), because a refused lifecycle change is security-relevant.
     fn lifecycle_permit(&self, actor: &str, operation: &str, target: &str) -> Result<()> {
+        if !self.policy.workflow_credentials.is_empty() {
+            return refuse(
+                "plugin lifecycle is unavailable in a Forge home configured for workflow credentials",
+            );
+        }
         if let Err(error) = self.permit(actor, "plugins", None) {
             let _ = self.record(actor, "plugin_denied", target, operation);
             return Err(error);

@@ -259,7 +259,9 @@ impl Core {
         self.flow_current(e)?;
         self.validate_leaf(e.invocation.principal(), action, "execute")?;
         let digest = self.action_hash(e.invocation.principal(), action)?;
-        if action["type"] == "harness" {
+        let credentialed = action["type"] == crate::workflow_credentials::KIND;
+        let mut credential = None;
+        if credentialed || action["type"] == "harness" {
             let fresh = self.store.write(|c| {
                 Ok(c.query_row(
                     "SELECT 1 FROM forge_flow_effects WHERE run_id=?1 AND slot=?2",
@@ -272,7 +274,13 @@ impl Core {
             // Unavailable harness or containment is a refusal, never an uncertain effect:
             // nothing may be recorded as possibly-launched before these checks pass.
             if fresh {
-                self.harness_preflight(&action["input"]).await?;
+                if credentialed {
+                    credential = Some(self.prepare_credential_check(e, slot, action)?);
+                } else {
+                    self.harness_preflight(&action["input"]).await?;
+                }
+            } else if credentialed {
+                self.authorize_credential_step(e, slot, action)?;
             }
         }
         let raw = crate::canonical::to_string(action)?;
@@ -317,6 +325,22 @@ impl Core {
                 return Err(denial.into());
             }
             (output, Some(authority.deadline))
+        } else if credentialed {
+            let name = crate::workflow_credentials::alias(&action["input"])?;
+            self.record(
+                e.invocation.principal(),
+                "workflow_credential_use",
+                &e.dbos_id,
+                &format!("{slot} {name}"),
+            )?;
+            self.authorize_credential_step(e, slot, action)?;
+            (
+                credential
+                    .ok_or(Invalid("credential check missing authorized preflight"))?
+                    .send()
+                    .await?,
+                None,
+            )
         } else {
             (self.flow_outbound(e, action, &effect_key).await?, None)
         };
@@ -376,6 +400,9 @@ impl Core {
         output: &Value,
     ) -> Result<()> {
         self.flow_current(e)?;
+        if action["type"] == crate::workflow_credentials::KIND {
+            self.authorize_credential_step(e, slot, action)?;
+        }
         let digest = self.action_hash(e.invocation.principal(), action)?;
         let row=self.store.write(|c| Ok(c.query_row("SELECT invocation_digest,action_digest,state,receipt FROM forge_flow_effects WHERE run_id=?1 AND slot=?2",params![e.dbos_id,slot],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,Option<String>>(3)?))).optional()?))?.context("cached flow step lacks receipt")?;
         if row.0 != e.invocation_sha256 || row.1 != digest || row.2 != "completed" {

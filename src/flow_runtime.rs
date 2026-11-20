@@ -214,18 +214,29 @@ async fn leaf(
             let result = match action["type"].as_str().unwrap_or("") {
                 "echo" => json!({"text":action["input"]["text"]}),
                 "fail" => return Err(reject(&core, &e, &format!("{slot}: explicit flow failure"))),
-                _ => core.flow_effect(&e, &slot, &action).await.map_err(|_| {
-                    reject(
-                        &core,
-                        &e,
-                        &format!("{slot}: external call failed or is unresolved; inspect exact effect receipt"),
-                    )
-                })?,
+                _ => core
+                    .flow_effect(&e, &slot, &action)
+                    .await
+                    .map_err(|error| {
+                        let reason = if action["type"] == crate::workflow_credentials::KIND {
+                            error.downcast_ref::<Invalid>().map(|v| v.0)
+                        } else {
+                            None
+                        }
+                        .unwrap_or(
+                            "external call failed or is unresolved; inspect exact effect receipt",
+                        );
+                        reject(&core, &e, &format!("{slot}: {reason}"))
+                    })?,
             };
             if let Some(expect) = action["input"]["expect"].as_str()
                 && !result["text"].as_str().unwrap_or("").contains(expect)
             {
-                return Err(reject(&core, &e, &format!("{slot}: flow output assertion failed")));
+                return Err(reject(
+                    &core,
+                    &e,
+                    &format!("{slot}: flow output assertion failed"),
+                ));
             }
             Ok(result)
         }
