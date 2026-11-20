@@ -42,4 +42,20 @@ python3 scripts/smoke_installed.py
 
 The driver uses only the Python standard library by default. Set `FORGE_BROWSER=1` to add dashboard checks; this also requires Python Playwright, `CHROMIUM_EXECUTABLE`, and a short external `TMPDIR`. The CI workflow defines an equivalent no-model smoke with PostgreSQL 18. Local results do not establish hosted CI results.
 
+## Optional native harness check
+
+The installed smoke test above uses no model. To verify a native harness on a
+separate, disposable Forge installation, use
+[`scripts/qualify_harness.py`](../scripts/qualify_harness.py). It runs both a
+manual workflow and a scheduled occurrence with the selected workspace-write
+profile. It checks structured output, the written artifact, and dependent-step
+output. This creates work and a schedule on the supplied server; do not point
+it at an existing production installation.
+
+The script's docstring lists the required environment variables. Supply the
+operator token through the private environment and use an absent directory for
+`FORGE_TEST_STATE`. The script needs a configured, authorized harness and model;
+it does not set them up. Keep the results private. A pass applies to that
+profile, binary, and model, and does not establish crash recovery or containment.
+
 See [source provenance](reference.md) and the [third-party notices](../THIRD_PARTY_NOTICES.md) for source and dependency licensing.
