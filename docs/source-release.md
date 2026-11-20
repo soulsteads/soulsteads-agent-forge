@@ -1,6 +1,6 @@
 # Source snapshots
 
-A public source snapshot contains the files needed to build, inspect and test Agent Forge. `public-source.allowlist` lists its complete tracked file set. Check the exact committed tree, including Markdown links and third-party notices, with:
+A public source snapshot contains the files needed to build, inspect and test Agent Forge. `public-source.allowlist` lists its complete tracked file set. `THIRD_PARTY_NOTICES.md` lists the locked dependencies and their declared licenses. This check is for source snapshots; binary distributions and vendored dependencies must carry their required license texts and notices separately. Check the exact committed tree with:
 
 ```sh
 python3 scripts/check_public_source.py --revision HEAD --scope public

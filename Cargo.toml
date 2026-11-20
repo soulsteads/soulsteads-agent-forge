@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
 description = "Standalone native Rust DBOS execution with dashboard and authenticated MCP"
-include = ["src/*.rs", "src/dbos/*.rs", "src/dbos/*.sql", "assets/*.html", "assets/*.js", "assets/*.css", "skills/*/SKILL.md", "docs/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "licenses/**"]
+include = ["src/*.rs", "src/dbos/*.rs", "src/dbos/*.sql", "assets/*.html", "assets/*.js", "assets/*.css", "skills/*/SKILL.md", "docs/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"]
 
 [lib]
 name = "agent_forge"

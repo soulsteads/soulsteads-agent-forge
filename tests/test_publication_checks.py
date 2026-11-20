@@ -1,9 +1,11 @@
 """Small mutation tests for the offline publication gates."""
-import hashlib
 import json
+import hashlib
+import io
 import os
 from pathlib import Path
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -99,35 +101,47 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(check_public_source.check_links(self.root, tracked, tracked), [])
         self.assertTrue(check_public_source.check_links(self.root, {'README.md'}, {'README.md'}))
 
-    def test_notice_coverage_hashes_provenance_and_package_inclusion(self):
+    def test_source_notice_lists_each_locked_dependency_and_license_once(self):
         self.write('Cargo.lock', '[[package]]\nname="demo"\nversion="1.0.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\nchecksum="abc"\n')
-        self.write('Cargo.toml', '[package]\ninclude=["THIRD_PARTY_NOTICES.md", "licenses/**"]\n')
-        self.write('THIRD_PARTY_NOTICES.md', '| demo-1.0.0 | MIT | [texts](licenses/demo-1.0.0/) |\n')
-        self.write('licenses/demo-1.0.0/LICENSE', 'upstream fixture bytes\n')
-        row = {'path': 'licenses/demo-1.0.0/LICENSE', 'sha256': hashlib.sha256(b'upstream fixture bytes\n').hexdigest(),
-               'source': 'crates.io:demo-1.0.0/LICENSE', 'crate_sha256': 'abc'}
-        self.write('licenses/provenance.json', json.dumps([row]))
+        self.write('Cargo.toml', '[package]\ninclude=["THIRD_PARTY_NOTICES.md"]\n')
+        header = '| Package | Version | Declared license |\n| --- | --- | --- |\n'
+        row = '| demo | 1.0.0 | MIT OR Apache-2.0 |\n'
+        self.write('THIRD_PARTY_NOTICES.md', header + row)
         self.assertEqual(check_notices.check(self.root), [])
-        self.write('licenses/demo-1.0.0/LICENSE', 'changed attribution\n')
-        self.assertTrue(check_notices.check(self.root))
-
-        self.write('licenses/demo-1.0.0/LICENSE', 'upstream fixture bytes\n')
-        self.write('THIRD_PARTY_NOTICES.md', '')
-        self.assertTrue(check_notices.check(self.root))
-        self.write('THIRD_PARTY_NOTICES.md', '| demo-1.0.0 | MIT | [texts](licenses/demo-1.0.0/) |\n')
+        for invalid in ('', row + row, row.replace('1.0.0', '2.0.0'), row.replace('MIT OR Apache-2.0', '')):
+            with self.subTest(invalid=invalid):
+                self.write('THIRD_PARTY_NOTICES.md', header + invalid)
+                self.assertTrue(check_notices.check(self.root))
+        self.write('THIRD_PARTY_NOTICES.md', header + row)
         self.write('Cargo.toml', '[package]\ninclude=["src/**"]\n')
         self.assertTrue(check_notices.check(self.root))
-        self.write('Cargo.toml', '[package]\ninclude=["THIRD_PARTY_NOTICES.md", "licenses/**"]\n')
-        row['source'] = ''
-        self.write('licenses/provenance.json', json.dumps([row]))
-        self.assertTrue(check_notices.check(self.root))
 
-    def test_package_list_must_carry_every_retained_license(self):
-        self.write('licenses/provenance.json', json.dumps([{'path': 'licenses/demo/LICENSE'}]))
-        expected = {'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md', 'licenses/provenance.json', 'licenses/demo/LICENSE'}
-        self.assertEqual(check_notices.check_package_list(self.root, expected), [])
-        self.assertTrue(check_notices.check_package_list(self.root, expected - {'licenses/demo/LICENSE'}))
-        self.assertTrue(check_notices.check_package_list(self.root, expected | {'internal/private.md'}))
+    def test_package_list_must_carry_the_consolidated_notice(self):
+        expected = {'LICENSE', 'NOTICE', 'THIRD_PARTY_NOTICES.md'}
+        self.assertEqual(check_notices.check_package_list(expected), [])
+        self.assertTrue(check_notices.check_package_list(expected - {'THIRD_PARTY_NOTICES.md'}))
+        self.assertTrue(check_notices.check_package_list(expected | {'internal/private.md'}))
+
+    def test_inventory_license_must_match_locked_crate_manifest(self):
+        cache = self.root / 'registry/cache/fixture'
+        cache.mkdir(parents=True)
+        crate = cache / 'demo-1.0.0.crate'
+        manifest = b'[package]\nlicense="MIT"\n'
+        with tarfile.open(crate, 'w:gz') as tar:
+            member = tarfile.TarInfo('demo-1.0.0/Cargo.toml')
+            member.size = len(manifest)
+            tar.addfile(member, io.BytesIO(manifest))
+        checksum = hashlib.sha256(crate.read_bytes()).hexdigest()
+        self.write('Cargo.lock', f'[[package]]\nname="demo"\nversion="1.0.0"\nsource="registry+https://github.com/rust-lang/crates.io-index"\nchecksum="{checksum}"\n')
+        self.write('Cargo.toml', '[package]\ninclude=["THIRD_PARTY_NOTICES.md"]\n')
+        self.write('THIRD_PARTY_NOTICES.md', '| demo | 1.0.0 | Apache-2.0 |\n')
+        self.assertIn('demo-1.0.0: declared license differs from locked crate manifest',
+                      check_notices.check(self.root, cargo_home=self.root))
+        self.write('THIRD_PARTY_NOTICES.md', '| demo | 1.0.0 | MIT |\n')
+        self.assertEqual(check_notices.check(self.root, cargo_home=self.root), [])
+        crate.write_bytes(b'changed archive')
+        self.assertIn('demo-1.0.0: locked crate archive unavailable',
+                      check_notices.check(self.root, cargo_home=self.root))
 
 
 if __name__ == '__main__':
