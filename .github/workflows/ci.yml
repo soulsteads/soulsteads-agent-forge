@@ -53,7 +53,49 @@ jobs:
       - name: Dashboard regressions
         run: node --test tests/dashboard-*.test.cjs
       - name: Locked Rust tests
-        run: cargo +1.100.0 test --locked --all-targets -j 1
+        run: |
+          # Only the disposable test service gets cgroup delegation. Cargo and
+          # its fixtures still run as the unprivileged Actions runner.
+          sudo -n /usr/bin/systemd-run --wait --pipe --collect --quiet \
+            --unit="forge-ci-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --uid="$(id -u)" --gid="$(id -g)" --property=Delegate=yes \
+            --working-directory="$GITHUB_WORKSPACE" --expand-environment=no \
+            --setenv="HOME=$HOME" --setenv="PATH=$PATH" \
+            --setenv="RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            --setenv="CARGO_HOME=$CARGO_HOME" --setenv="CARGO_TARGET_DIR=$CARGO_TARGET_DIR" \
+            --setenv="CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS" --setenv="TMPDIR=$TMPDIR" \
+            --setenv="PYTHONDONTWRITEBYTECODE=1" \
+            /usr/bin/bash -euo pipefail -c '
+              python3 -I -B - <<"PY"
+          import os
+          from pathlib import Path
+          import signal
+          import subprocess
+
+          assert os.geteuid() != 0, "Rust tests must run unprivileged"
+          relative = next(line.removeprefix("0::") for line in
+                          Path("/proc/self/cgroup").read_text().splitlines()
+                          if line.startswith("0::"))
+          assert relative.startswith("/") and relative != "/", "expected a delegated test service"
+          leaf = Path("/sys/fs/cgroup") / relative.lstrip("/") / "forge-ci-probe"
+          leaf.mkdir()
+          try:
+              with subprocess.Popen(["sleep", "30"]) as child:
+                  try:
+                      procs = leaf / "cgroup.procs"
+                      procs.write_text(f"{child.pid}\n")
+                      assert str(child.pid) in procs.read_text().splitlines()
+                      (leaf / "cgroup.kill").write_text("1\n")
+                      assert child.wait(timeout=5) == -signal.SIGKILL
+                  finally:
+                      if child.poll() is None:
+                          child.kill()
+          finally:
+              leaf.rmdir()
+          print("Unprivileged delegated cgroup create, move, kill and removal verified", flush=True)
+          PY
+              exec "$@"
+            ' forge-ci "$(command -v cargo)" +1.100.0 test --locked --all-targets -j 1
       - name: Offline package notice inclusion
         run: |
           cargo +1.100.0 package --list --locked --offline > "$RUNNER_TEMP/forge-package-list.txt"
