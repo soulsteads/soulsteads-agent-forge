@@ -118,4 +118,4 @@ The history can be empty until the first due time. After that, follow the occurr
 
 ## License
 
-Licensed under [Apache-2.0](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.md) for bundled notices.
+Licensed under [Apache-2.0](LICENSE). See [third-party licenses](THIRD_PARTY_NOTICES.md) for the dependency inventory.

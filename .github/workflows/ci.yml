@@ -96,10 +96,11 @@ jobs:
           PY
               exec "$@"
             ' forge-ci "$(command -v cargo)" +1.100.0 test --locked --all-targets -j 1
-      - name: Offline package notice inclusion
+      - name: Verify dependency licenses and source package inclusion
         run: |
+          cargo +1.100.0 fetch --locked
           cargo +1.100.0 package --list --locked --offline > "$RUNNER_TEMP/forge-package-list.txt"
-          python3 scripts/check_notices.py --package-list "$RUNNER_TEMP/forge-package-list.txt"
+          python3 scripts/check_notices.py --verify-registry-licenses --package-list "$RUNNER_TEMP/forge-package-list.txt"
       - name: Real no-model PostgreSQL smoke
         env:
           SMOKE_DB_FIXTURE_PASSWORD: fixture-only
