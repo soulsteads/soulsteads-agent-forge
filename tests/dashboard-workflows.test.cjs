@@ -256,3 +256,58 @@ test("a departed list cannot publish before the return hash dispatches its loade
   assert.equal(f.snapshot().version, "opening");
   assert.equal(f.body.children.length, 0);
 });
+
+test("returning from detail to the library retires detail controls before the snapshot settles", async () => {
+  const deferred = [];
+  const f = page("", (method) => {
+    if (method === "work") return { id: "daily", enabled: true, definition: { type: "workflow", input: { steps: [] } } };
+    if (method === "runs") return { runs: [] };
+    if (method === "schedules") return [];
+    if (method === "snapshot") return new Promise((resolve, reject) => deferred.push({ resolve, reject }));
+    assert.fail(`unexpected request ${method}`);
+  });
+  await f.detail("daily");
+  assert.ok(f.byId("wf-run") && f.byId("wf-toggle"));
+  delete f.route.id;
+  const pending = f.load();
+  const retainedWhileLoading = Boolean(f.byId("wf-run")) || Boolean(f.byId("wf-toggle"));
+  deferred[0].reject(new Error("library unavailable"));
+  await pending;
+  assert.equal(retainedWhileLoading, false);
+  assert.equal(f.byId("wf-run"), undefined);
+  assert.equal(f.byId("wf-toggle"), undefined);
+  assert.equal(f.error(), "library unavailable");
+});
+
+test("a failed reload after a saved toggle reports in the mounted workflow alert", async () => {
+  let workReads = 0;
+  const f = page("", async (method) => {
+    if (method === "work") {
+      workReads += 1;
+      if (workReads > 1) throw new Error("reload unavailable");
+      return { id: "daily", enabled: true, definition: { type: "workflow", input: { steps: [] } } };
+    }
+    if (method === "enable") return {};
+    if (method === "runs") return { runs: [] };
+    if (method === "schedules") return [];
+    assert.fail(`unexpected request ${method}`);
+  });
+  await f.detail("daily");
+  await f.byId("wf-toggle").listeners.click();
+  assert.match(f.error(), /reload unavailable/);
+  assert.match(f.error(), /saved/);
+  assert.deepEqual(f.statuses, ["Failed / state may be stale: reload unavailable"]);
+});
+
+test("non-workflow saved work still exposes its complete definition JSON", async () => {
+  const f = page("", async (method) => {
+    if (method === "work") return { id: "helper", enabled: true, definition: { type: "echo", input: { text: "hello" } } };
+    if (method === "runs") return { runs: [] };
+    if (method === "schedules") return [];
+    assert.fail(`unexpected request ${method}`);
+  });
+  await f.detail("helper");
+  const summaries = walk(f.body).filter((el) => el.tag === "summary").map((el) => el.textContent);
+  assert.ok(summaries.includes("Complete definition JSON"));
+  assert.ok(walk(f.body).some((el) => el.tag === "pre" && el.textContent.includes("hello")));
+});

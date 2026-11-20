@@ -317,7 +317,7 @@ async function workflowList() {
   const read = ++workflowListRead, generation = routeGeneration;
   const isCurrent = () => generation === routeGeneration && read === workflowListRead && onList();
   const body = $("wf-body");
-  if (!author && body.querySelector("#wf-create")) body.replaceChildren();
+  if (body.querySelector("#wf-run") || (!author && body.querySelector("#wf-create"))) body.replaceChildren(h("p", { role: "status", class: "hint", text: "Loading workflows…" }));
   let nextSnapshot;
   try {
     nextSnapshot = await F.call("snapshot");
@@ -569,8 +569,21 @@ async function workflowDetail(id) {
         h("button", { type: "button", text: "New key", onclick: () => { keyInput.value = newKey(); } })),
       h("div", { class: "row-actions" },
         h("button", { type: "button", id: "wf-run", class: "primary", text: workflow ? "Run workflow" : "Run work", disabled: !w.enabled, onclick: run }),
-        h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable", onclick: () => guarded(diag, async () => { await F.call("enable", { work_id: id, enabled: !w.enabled }); if (isCurrent()) await workflowDetail(id); }) })),
+        h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable", onclick: () => guarded(diag, async () => {
+          await F.call("enable", { work_id: id, enabled: !w.enabled });
+          if (!isCurrent()) return;
+          try { await workflowDetail(id); }
+          catch (error) {
+            if (!isCurrent()) return;
+            const message = error.message || String(error);
+            alertBox($("wf-alert"), "The change was saved, but the workflow could not be reloaded: " + message);
+            F.status("Failed / state may be stale: " + message);
+          }
+        }) })),
       diag)),
+    workflow ? null : h("section", { class: "card", "aria-labelledby": "wf-definition-title" },
+      h("h3", { id: "wf-definition-title", text: "Definition" }),
+      h("details", {}, h("summary", { text: "Complete definition JSON" }), pre(d))),
     h("section", { class: "card", "aria-labelledby": "wf-schedules-title" },
       h("div", { class: "wf-section-head" }, h("h3", { id: "wf-schedules-title", text: "Schedules" }),
         w.enabled ? h("a", { class: "action-link", href: "#/schedules?work=" + encodeURIComponent(id), text: "+ Add schedule" }) : null), scheduleBox),
