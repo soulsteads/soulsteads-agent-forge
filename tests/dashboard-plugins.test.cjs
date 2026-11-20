@@ -11,11 +11,12 @@ function section(start, end) {
   return ui.slice(from, to);
 }
 class Element {
-  constructor(tag) { this.tag = tag; this.children = []; this.textContent = ""; }
-  setAttribute() {}
+  constructor(tag) { this.tag = tag; this.children = []; this.textContent = ""; this.attrs = {}; }
+  setAttribute(name, value) { this.attrs[name] = value; }
   addEventListener() {}
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
+  get childElementCount() { return this.children.length; }
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function page() {
@@ -53,6 +54,29 @@ async function imported() {
   assert.equal(f.imports.length, 1);
   return { f, pending };
 }
+
+test("enabled extension links keep their route and label beside a decorative icon", () => {
+  const links = new Element("ul"), navigation = new Element("div");
+  const context = vm.createContext({
+    Node: Element, document: { createElement: tag => new Element(tag) },
+    $: id => id === "forge-plugin-links" ? links : navigation,
+    parseHash: () => ({ view: "overview" }), markCurrentView() {},
+    snapshot: { health: { installed_plugins: [
+      { id: "fixture", enabled: true, dashboard: [{ path: "home", label: "Fixture & reports" }] },
+      { id: "disabled", enabled: false, dashboard: [{ path: "home", label: "Disabled" }] },
+    ] } },
+  });
+  vm.runInContext(section("function h(", "const when =") + section("const installedPlugins =", "let activePlugin ="), context);
+  context.renderPluginNav();
+  assert.equal(navigation.hidden, false);
+  assert.equal(links.childElementCount, 1);
+  const [link] = links.children[0].children;
+  assert.equal(link.attrs.href, "#/x/fixture/home");
+  const [icon, label] = link.children;
+  assert.equal(icon?.className, "nav-icon");
+  assert.equal(icon.attrs["aria-hidden"], "true");
+  assert.equal(label.textContent, "Fixture & reports");
+});
 
 test("leaving a mounted plugin calls cleanup exactly once", async () => {
   const { f, pending } = await imported(); let cleaned = 0;

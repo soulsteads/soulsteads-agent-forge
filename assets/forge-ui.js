@@ -116,8 +116,8 @@ function renderPluginNav() {
     for (const r of plugin.dashboard || []) {
       links.append(h("li", {}, h("a", {
         href: "#/x/" + encodeURIComponent(plugin.id) + "/" + encodeURIComponent(r.path),
-        "data-view": "x", "data-plugin-nav": plugin.id, text: r.label,
-      })));
+        "data-view": "x", "data-plugin-nav": plugin.id,
+      }, h("span", { class: "nav-icon", "aria-hidden": "true", text: "◇" }), h("span", { text: r.label }))));
     }
   }
   $("forge-plugin-navigation").hidden = links.childElementCount === 0;
@@ -284,7 +284,7 @@ async function pluginView(kind) {
       catch { throw Error("Input is not valid JSON. Correct the JSON syntax and try again."); }
       await F.call("validate", { definition: { type: kind, input: value } });
       alertBox(validation, "Valid input under registration policy. Nothing stored or executed. Execution requires execute authority.", "ok");
-      if (author) { pluginDraft = { type: kind, input: value }; go("#/workflows"); }
+      if (author) { pluginDraft = { type: kind, input: value }; go("#/workflows?mode=new"); }
     });
     body.append(h("h2", { text: kind }), h("p", { id: "pl-description", text: metadata.description }),
       h("h3", { text: "Input schema" }), h("pre", { id: "pl-schema", text: JSON.stringify(metadata.schema, null, 2) }),
@@ -300,15 +300,24 @@ async function pluginView(kind) {
 
 // ------------------------------------------------------------------ workflows
 let workflowListRead = 0;
+function workflowHeading(label, title, description, ...actions) {
+  return h("header", { class: "wf-heading" }, h("div", {},
+    h("p", { class: "eyebrow", text: label }), h("h2", { text: title }), h("p", { text: description })),
+    h("div", { class: "row-actions" }, actions));
+}
+
 async function workflowList() {
+  const authoring = () => parseHash().query?.get("mode") === "new";
+  const author = authoring();
   const onList = () => {
     const route = parseHash();
-    return route.view === "workflows" && !route.id;
+    return route.view === "workflows" && !route.id && authoring() === author;
   };
   if (!onList()) return;
   const read = ++workflowListRead, generation = routeGeneration;
   const isCurrent = () => generation === routeGeneration && read === workflowListRead && onList();
   const body = $("wf-body");
+  if (!author && body.querySelector("#wf-create")) body.replaceChildren();
   let nextSnapshot;
   try {
     nextSnapshot = await F.call("snapshot");
@@ -322,18 +331,53 @@ async function workflowList() {
   }
   if (!isCurrent()) return;
   snapshot = nextSnapshot;
+  if (author) {
+    body.replaceChildren(workflowHeading("Automations / Builder", "New workflow",
+      "Compose a definition, validate it with Forge, then register it under a new ID.",
+      h("a", { class: "action-link", href: "#/workflows", text: "← Workflow library" })), builder());
+    return;
+  }
   const flows = snapshot.work.filter((w) => w.definition.type === "workflow");
-  const rows = flows.map((w) => h("tr", {},
-    h("td", {}, h("a", { href: "#/workflows/" + encodeURIComponent(w.id), text: w.id })),
-    h("td", { text: w.enabled ? "enabled" : "disabled" }),
-    h("td", { text: when(w.created) }),
-    h("td", {}, h("a", { href: "#/runs?work=" + encodeURIComponent(w.id), text: "Runs" }))));
+  const enabled = flows.filter((w) => w.enabled).length;
+  const scheduleCounts = new Map();
+  for (const schedule of snapshot.schedules || []) {
+    const id = schedule.context.work_id;
+    scheduleCounts.set(id, (scheduleCounts.get(id) || 0) + 1);
+  }
+  const rows = h("tbody");
+  const count = h("p", { class: "hint wf-count", role: "status" });
+  const empty = h("p", { id: "wf-empty", class: "empty" });
+  const table = scrollTable("Workflow library", h("table", { id: "wf-table" }, h("thead", {},
+    h("tr", {}, ["Workflow", "State", "Schedules", "Created", "Activity"].map((label) => h("th", { scope: "col", text: label })))), rows));
+  const search = h("input", { id: "wf-search", type: "search", placeholder: "Search by workflow ID…", oninput: render });
+  const state = h("select", { id: "wf-state", onchange: render },
+    h("option", { value: "", text: "All states" }), h("option", { value: "enabled", text: "Enabled" }), h("option", { value: "disabled", text: "Disabled" }));
+  function render() {
+    const query = search.value.trim().toLowerCase();
+    const filtered = flows.filter((w) => w.id.toLowerCase().includes(query) && (!state.value || (w.enabled ? "enabled" : "disabled") === state.value));
+    table.hidden = filtered.length === 0;
+    empty.hidden = filtered.length !== 0;
+    empty.textContent = flows.length ? "No workflows match these filters." : "No workflows in this list. Create a workflow to get started.";
+    count.textContent = `Showing ${filtered.length} of ${flows.length} workflows`;
+    rows.replaceChildren(...filtered.map((w) => h("tr", { "data-workflow": w.id },
+      h("th", { scope: "row" }, h("a", { href: "#/workflows/" + encodeURIComponent(w.id), text: w.id })),
+      h("td", {}, chip(w.enabled ? "Enabled" : "Disabled")),
+      h("td", { text: String(scheduleCounts.get(w.id) || 0) }),
+      h("td", { text: when(w.created) }),
+      h("td", {}, h("a", { href: "#/runs?work=" + encodeURIComponent(w.id), "aria-label": "View runs for " + w.id, text: "View runs →" })))));
+  }
+  const metric = (label, value) => h("div", { class: "wf-metric" }, h("dt", { text: label }), h("dd", { text: String(value) }));
+  render();
   body.replaceChildren(
-    h("h2", { text: "Workflows" }),
-    h("p", { text: "Multi-step deterministic definitions. Definitions are immutable: register a new ID to change intent, and disable the old one." }),
-    flows.length ? h("table", { id: "wf-table" }, h("thead", {}, h("tr", {}, ["Workflow", "State", "Created", ""].map((t) => h("th", { text: t })))), h("tbody", {}, rows))
-      : h("p", { class: "empty", text: "No workflows yet. Build one below." }),
-    builder());
+    workflowHeading("Automations / Library", "Workflows", "Find, inspect, and operate your registered workflows.",
+      h("a", { class: "action-link primary", href: "#/workflows?mode=new", text: "+ New workflow" })),
+    h("dl", { class: "wf-metrics", "aria-label": "Workflows in this list" },
+      metric("Workflows listed", flows.length), metric("Enabled", enabled), metric("Disabled", flows.length - enabled)),
+    h("section", { class: "card wf-library", "aria-labelledby": "wf-library-title" },
+      h("h3", { id: "wf-library-title", text: "Workflow library" }),
+      h("div", { class: "wf-toolbar" }, h("label", {}, "Find workflow", search), h("label", {}, "State", state)),
+      count, empty, table,
+      snapshot.limits?.work && snapshot.work.length >= snapshot.limits.work ? h("p", { class: "hint", text: `Forge returns up to ${snapshot.limits.work} work definitions. Filters and counts apply to this list only.` }) : null));
 }
 
 const EXAMPLE = {
@@ -437,7 +481,7 @@ function builder() {
     pluginDraft = null;
   } else addStep({ id: "step1", action: "echo", input: { text: "${/params/topic}" } });
   return h("section", { class: "card", id: "wf-builder" },
-    h("h3", { text: "New workflow" }),
+    h("h3", { text: "Workflow definition" }),
     h("p", { class: "hint", text: "Steps run in order. A step may read parameters and the outputs of earlier steps it lists under “Reads from”. Validation uses the service's registration checks without storing anything." }),
     h("div", { class: "grid2" }, h("label", {}, "Workflow ID", idInput), h("label", {}, "Parameter defaults JSON", params)),
     stepsBox,
@@ -457,9 +501,20 @@ function builder() {
 
 async function workflowDetail(id) {
   const body = $("wf-body");
-  const w = await F.call("work", { work_id: id });
+  const generation = routeGeneration;
+  const isCurrent = () => {
+    const current = parseHash();
+    return generation === routeGeneration && current.view === "workflows" && current.id === id;
+  };
+  if (!isCurrent()) return;
+  body.replaceChildren(h("p", { role: "status", class: "hint", text: "Loading workflow…" }));
+  let w;
+  try { w = await F.call("work", { work_id: id }); }
+  catch (error) { if (isCurrent()) { body.replaceChildren(); throw error; } return; }
+  if (!isCurrent()) return;
   const d = w.definition;
-  const runsBox = h("div", { id: "wf-recent" });
+  const runsBox = h("div", { id: "wf-recent" }, h("p", { class: "hint", text: "Loading recent runs…" }));
+  const scheduleBox = h("div", { id: "wf-schedules" }, h("p", { class: "hint", text: "Loading schedules…" }));
   const diag = h("div");
   const downloadNotice = h("div");
   const download = h("button", { type: "button", text: "Download JSON", onclick: () => guarded(downloadNotice, async () => {
@@ -475,40 +530,67 @@ async function workflowDetail(id) {
     h("a", { href: url, download: name }).click();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }) });
-  const steps = (d.input.steps || []).map((s, i) => h("tr", {},
-    h("td", { text: String(i + 1) }), h("td", { text: s.id }), h("td", { text: (s.needs || []).join(", ") || "-" }),
-    h("td", { text: s.action.work_id ? "work:" + s.action.work_id : s.action.type }),
-    h("td", {}, h("code", { text: brief(s.action.input ?? s.action.params, 120) }))));
+  const steps = (d.type === "workflow" ? d.input.steps || [] : []).map((s, i) => h("li", {},
+    h("details", { class: "wf-step" }, h("summary", {},
+      h("span", { class: "step-number", "aria-hidden": "true", text: String(i + 1).padStart(2, "0") }),
+      h("strong", { text: s.id }), chip(s.action.work_id ? "Saved work" : s.action.type),
+      h("small", { text: s.needs?.length ? "Reads from " + s.needs.join(", ") : "No step dependencies" })),
+    s.action.work_id ? h("p", {}, "Saved work: ", h("code", { text: s.action.work_id })) : null,
+    h("p", { class: "hint", text: s.action.work_id ? "Step parameters" : "Step input" }),
+    pre(s.action.input ?? s.action.params ?? null))));
   const defaults = d.input.params || {};
   const paramsInput = h("textarea", { id: "run-params-json", rows: 4, text: JSON.stringify(defaults, null, 2) });
   const keyInput = h("input", { id: "run-key", value: newKey(), size: 44 });
   const run = () => guarded(diag, async () => {
     const r = await F.call("run", { work_id: id, key: keyInput.value, params: JSON.parse(paramsInput.value || "{}") });
-    go("#/runs/" + encodeURIComponent(r.run_id));
+    if (isCurrent() && keyInput.isConnected) go("#/runs/" + encodeURIComponent(r.run_id));
   });
+  const workflow = d.type === "workflow";
+  const runHistory = "#/runs?work=" + encodeURIComponent(id);
   body.replaceChildren(
-    h("p", {}, h("a", { href: "#/workflows", text: "← All workflows" })),
-    h("div", { class: "row-actions" }, h("h2", { text: "Workflow " + w.id }),
-      d.type === "workflow" ? download : ""),
+    workflowHeading(workflow ? "Automations / Workflow" : "Automations / Saved work", w.id,
+      workflow ? "Inspect the definition, run it on demand, and follow the evidence." : "This saved work is not a multi-step workflow.",
+      h("a", { class: "action-link", href: "#/workflows", text: "← Workflow library" }), workflow ? download : null),
     downloadNotice,
-    h("p", {}, chip(w.enabled ? "ENABLED" : "DISABLED"), " created " + when(w.created) + " · type " + d.type),
-    d.type !== "workflow" ? h("p", { text: "This work item is not a workflow; inspect it in Operations." }) : h("div", { id: "wf-structure" },
-      h("table", { id: "wf-steps-table" }, h("thead", {}, h("tr", {}, ["#", "Step", "Reads from", "Action", "Input"].map((t) => h("th", { text: t })))), h("tbody", {}, steps)),
-      h("p", {}, "Output: ", h("code", { text: d.input.output ? JSON.stringify(d.input.output) : "last step's output" })),
-    ),
-    h("section", { class: "card" },
-      h("h3", { text: "Run" }),
+    h("div", { class: "wf-meta" }, chip(w.enabled ? "Enabled" : "Disabled"), h("span", { text: "Created " + when(w.created) }),
+      workflow ? h("span", { text: `${steps.length} ${steps.length === 1 ? "step" : "steps"}` }) : chip(d.type)),
+    h("div", { class: "wf-detail-grid" },
+    workflow ? h("section", { class: "card", id: "wf-structure", "aria-labelledby": "wf-structure-title" },
+      h("h3", { id: "wf-structure-title", text: "Workflow steps" }),
+      h("p", { class: "hint", text: "Expand a step to inspect its full input. Definitions are immutable; register a new ID to make changes." }),
+      h("ol", { class: "wf-chain" }, steps),
+      h("p", {}, "Output: ", h("code", { text: Object.hasOwn(d.input, "output") ? JSON.stringify(d.input.output) : "last step's output" })),
+      h("details", {}, h("summary", { text: "Complete definition JSON" }), pre(d))) : null,
+    h("section", { class: "card wf-run-card", "aria-labelledby": "wf-run-title" },
+      h("h3", { id: "wf-run-title", text: "Run on demand" }),
       h("label", { class: "wide" }, "Parameters JSON (overrides defaults shallowly)", paramsInput),
-      h("label", {}, "Request key (reuse after a lost response; a new key is a new run)", keyInput),
+      h("details", {}, h("summary", { text: "Request identity" }),
+        h("label", {}, "Request key (reuse after a lost response; a new key is a new run)", keyInput),
+        h("button", { type: "button", text: "New key", onclick: () => { keyInput.value = newKey(); } })),
       h("div", { class: "row-actions" },
-        h("button", { type: "button", id: "wf-run", class: "primary", text: "Run workflow", disabled: !w.enabled, onclick: run }),
-        h("button", { type: "button", text: "New key", onclick: () => { keyInput.value = newKey(); } }),
-        h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable", onclick: () => guarded(diag, async () => { await F.call("enable", { work_id: id, enabled: !w.enabled }); await workflowDetail(id); }) })),
-      diag),
-    h("h3", {}, "Recent runs ", h("a", { href: "#/runs?work=" + encodeURIComponent(id), text: "(search all)" })), runsBox,
-    h("details", {}, h("summary", { text: "Complete definition JSON" }), pre(d)));
-  const r = await F.call("runs", { work_id: id, limit: 10 });
-  runsBox.replaceChildren(runTable(r.runs));
+        h("button", { type: "button", id: "wf-run", class: "primary", text: workflow ? "Run workflow" : "Run work", disabled: !w.enabled, onclick: run }),
+        h("button", { type: "button", id: "wf-toggle", text: w.enabled ? "Disable" : "Enable", onclick: () => guarded(diag, async () => { await F.call("enable", { work_id: id, enabled: !w.enabled }); if (isCurrent()) await workflowDetail(id); }) })),
+      diag)),
+    h("section", { class: "card", "aria-labelledby": "wf-schedules-title" },
+      h("div", { class: "wf-section-head" }, h("h3", { id: "wf-schedules-title", text: "Schedules" }),
+        w.enabled ? h("a", { class: "action-link", href: "#/schedules?work=" + encodeURIComponent(id), text: "+ Add schedule" }) : null), scheduleBox),
+    h("section", { class: "card", "aria-labelledby": "wf-recent-title" },
+      h("div", { class: "wf-section-head" }, h("h3", { id: "wf-recent-title", text: "Recent runs" }),
+        h("a", { href: runHistory, text: "View run history →" })), runsBox));
+  async function hydrate(box, label, load) {
+    try { box.replaceChildren(await load()); }
+    catch (e) { alertBox(box, `${label} unavailable: ${e.message || e}`); }
+  }
+  await Promise.all([
+    hydrate(runsBox, "Recent runs", async () => runTable((await F.call("runs", { work_id: id, limit: 10 })).runs)),
+    hydrate(scheduleBox, "Schedules", async () => {
+      const schedules = (await F.call("schedules")).filter((s) => s.context.work_id === id);
+      return schedules.length ? h("ul", { class: "wf-schedule-list" }, schedules.map((s) => h("li", {},
+        h("a", { href: "#/schedules/" + encodeURIComponent(s.schedule_name), text: s.schedule_name }), chip(s.status),
+        h("code", { text: s.schedule }), h("small", { text: s.next_run ? "Next: " + iso(s.next_run) + " · " + (s.cron_timezone || "UTC") : "No upcoming tick" }))))
+        : h("p", { class: "empty", text: "No schedules for this work." });
+    }),
+  ]);
 }
 
 // ------------------------------------------------------------------ runs
@@ -568,10 +650,13 @@ function runTable(runs) {
 async function runList(query) {
   const body = $("runs-body");
   snapshot = snapshot || (await F.call("snapshot"));
-  const work = h("select", { name: "work", id: "runs-work" }, h("option", { value: "", text: "Any work" }), snapshot.work.map((w) => h("option", { value: w.id, text: w.id })));
+  const requestedWork = query.get("work") || "";
+  const workIds = new Set(snapshot.work.map((w) => w.id));
+  if (requestedWork) workIds.add(requestedWork);
+  const work = h("select", { name: "work", id: "runs-work" }, h("option", { value: "", text: "Any work" }), [...workIds].map((id) => h("option", { value: id, text: id })));
   const status = h("select", { name: "status", id: "runs-status" }, h("option", { value: "", text: "Any status" }), STATUSES.map((s) => h("option", { value: s, text: s })));
   const limit = h("input", { name: "limit", type: "number", min: 1, max: 100, value: query.get("limit") || 25 });
-  work.value = query.get("work") || ""; status.value = query.get("status") || "";
+  work.value = requestedWork; status.value = query.get("status") || "";
   const results = h("div", { id: "runs-results" });
   const more = h("div");
   const form = h("form", { id: "runs-filter", onsubmit: (e) => { e.preventDefault(); const q = new URLSearchParams(); if (work.value) q.set("work", work.value); if (status.value) q.set("status", status.value); if (limit.value) q.set("limit", limit.value); go("#/runs?" + q); } },
@@ -676,7 +761,11 @@ const outcomeChip = (o) => h("span", { class: "chip st-" + String(OUTCOME_CLASS[
 // Ticks keep their explicit offset: schedule-zone wall time for upcoming ticks, UTC for fired ones.
 const iso = (t) => (t ? String(t).replace("T", " ") : "-");
 
-let scheduleListRead = 0;
+let scheduleListRead = 0, scheduleDetailRead = 0, displayedScheduleQuery;
+function retireScheduleForm(body) {
+  const form = $("sc-create");
+  if (form) body.replaceChildren(...[...body.children].filter((node) => node !== form));
+}
 async function scheduleList(query) {
   const requestedQuery = query.toString();
   const onList = () => {
@@ -687,14 +776,22 @@ async function scheduleList(query) {
   const read = ++scheduleListRead, generation = routeGeneration;
   const isCurrent = () => generation === routeGeneration && read === scheduleListRead && onList();
   const body = $("sc-body");
+  if (displayedScheduleQuery !== requestedQuery) retireScheduleForm(body);
   const tagFilter = query.get("tag") || "";
-  let nextSnapshot, list, stats;
+  const requestedWork = query.get("work");
+  let nextSnapshot, list, stats, exactWork;
   try {
     nextSnapshot = await F.call("snapshot");
     if (!isCurrent()) return;
     list = tagFilter ? await F.call("schedules", { tag: tagFilter }) : nextSnapshot.schedules;
     if (!isCurrent()) return;
     stats = Object.fromEntries(((await F.call("schedule_stats")).schedules || []).map((x) => [x.schedule_name, x]));
+    if (!isCurrent()) return;
+    if (requestedWork && !nextSnapshot.work.some((w) => w.id === requestedWork)) {
+      // The snapshot is capped; a workflow deep link can reach an older ID.
+      try { exactWork = await F.call("work", { work_id: requestedWork }); }
+      catch { /* Keep the schedule list usable and show the unavailable selection in the form. */ }
+    }
   } catch (error) {
     if (isCurrent()) {
       const message = error.message || String(error);
@@ -727,15 +824,23 @@ async function scheduleList(query) {
     list.length ? h("p", { class: "hint", text: "Succeeded, failed and other counts cover each schedule's most recent occurrences (up to 100)." }) : "",
     list.length ? h("table", { id: "sc-table" }, h("thead", {}, h("tr", {}, ["Schedule", "Status", "Work", "Cron · zone", "Last fired", "Next due", "Tags", "Succeeded", "Failed", "Other", "Last run"].map((t) => h("th", { text: t })))), h("tbody", {}, rows))
       : h("p", { class: "empty", text: "No schedules yet. Create one below." }),
-    scheduleForm(query));
+    scheduleForm(query, exactWork, onList));
+  displayedScheduleQuery = requestedQuery;
 }
 
-function scheduleForm(query) {
+function scheduleForm(query, exactWork, onList) {
   const diag = h("div", { id: "sc-form-diag" });
   const previewBox = h("div", { id: "sc-preview" });
   const name = h("input", { id: "sc-name", required: true, pattern: "[a-zA-Z0-9][a-zA-Z0-9_.\\-]{0,79}", placeholder: "e.g. hourly-digest", value: query.get("name") || "" });
-  const work = h("select", { id: "sc-work" }, snapshot.work.filter((w) => w.enabled).map((w) => h("option", { value: w.id, text: w.id + " (" + w.definition.type + ")" })));
-  if (query.get("work")) work.value = query.get("work");
+  const requestedWork = query.get("work");
+  const choices = snapshot.work.filter((w) => w.enabled);
+  if (exactWork?.id === requestedWork && exactWork?.enabled) choices.push(exactWork);
+  const selected = choices.find((w) => w.id === requestedWork);
+  const missing = requestedWork && !selected;
+  const work = h("select", { id: "sc-work", required: true },
+    missing || !choices.length ? h("option", { value: "", disabled: true, text: "Choose enabled work" }) : null,
+    choices.map((w) => h("option", { value: w.id, text: w.id + " (" + w.definition.type + ")" })));
+  if (requestedWork) work.value = selected?.id || "";
   const cron = h("input", { id: "sc-cron", required: true, value: query.get("cron") || "0 * * * *", size: 22 });
   const tz = h("input", { id: "sc-tz", required: true, value: query.get("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", size: 22 });
   const params = h("textarea", { id: "sc-params", rows: 3, text: query.get("params") || "{}" });
@@ -748,7 +853,7 @@ function scheduleForm(query) {
       h("small", { text: p.catchup })));
   });
   const create = () => guarded(diag, async () => {
-    if (!name.reportValidity()) return;
+    if (!onList() || !name.reportValidity() || !work.reportValidity()) return;
     previewBox.replaceChildren();
     let parsed;
     try { parsed = JSON.parse(params.value || "{}"); } catch (e) { throw Error("Invocation parameters must be valid JSON: " + e.message); }
@@ -757,12 +862,13 @@ function scheduleForm(query) {
     // The canonical identity is exactly actor + "." + submitted local name; never suffix-match
     // (operator.a.digest must not stand in for a newly created operator.digest).
     const made = list.find((s) => s.schedule_name === s.context.actor + "." + local);
-    go("#/schedules/" + encodeURIComponent(made ? made.schedule_name : ""));
+    if (onList()) go("#/schedules/" + encodeURIComponent(made ? made.schedule_name : ""));
   });
   return h("section", { class: "card", id: "sc-create" },
     h("h3", { text: query.get("replace") ? "Create replacement for " + query.get("replace") : "New schedule" }),
     query.get("replace") ? h("p", { class: "alert info", text: "This creates a new schedule under a new name (a schedule's work is fixed); the original keeps running until you pause or delete it. Cron, zone, params and tags can be edited in place on the schedule's own page." }) : "",
     h("div", { class: "row-actions" }, h("label", {}, "Name", name), h("label", {}, "Work", work)),
+    missing ? h("p", { class: "hint", text: `Cannot select ${requestedWork}: it is unavailable or disabled. Choose enabled work.` }) : null,
     h("div", { class: "row-actions" },
       h("label", {}, "Cron (5 fields minute-first, or 6 seconds-first)", cron),
       h("label", {}, "IANA time zone", tz)),
@@ -805,10 +911,21 @@ function scheduleEditCard(s, name, diag, reload) {
 }
 
 async function scheduleDetail(name, notice) {
+  const onDetail = () => {
+    const route = parseHash();
+    return route.view === "schedules" && route.id === name;
+  };
+  if (!onDetail()) return;
+  const read = ++scheduleDetailRead, generation = routeGeneration;
+  const isCurrent = () => generation === routeGeneration && read === scheduleDetailRead && onDetail();
   const body = $("sc-body");
+  retireScheduleForm(body);
   const diag = h("div", { id: "sc-diag" });
   if (notice) alertBox(diag, notice, "ok");
-  const s = await F.call("schedule_show", { name, limit: 20 });
+  let s;
+  try { s = await F.call("schedule_show", { name, limit: 20 }); }
+  catch (error) { if (isCurrent()) throw error; return; }
+  if (!isCurrent()) return;
   const act = (action) => guarded(diag, async () => {
     if (action === "delete" && !confirm("Delete schedule " + name + "? Admitted runs continue; history stays readable.")) return;
     await F.call("schedule_action", { name, action });

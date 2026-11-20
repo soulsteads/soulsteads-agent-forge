@@ -21,6 +21,11 @@ docs/recovery.md
 docs/reference.md
 docs/source-release.md
 docs/support.md
+examples/README.md
+examples/release-readiness/import.json
+examples/rust-pr-review/README.md
+examples/rust-pr-review/import.json
+examples/rust-pr-review/review_packet.py
 public-source.allowlist
 public-source.exclusions.json
 scripts/check_agent_schedule_rejection.py
@@ -124,4 +129,5 @@ tests/safety.rs
 tests/test_acp_qualification.py
 tests/test_export_source.py
 tests/test_publication_checks.py
+tests/test_workflow_examples.py
 tests/workflow_credentials.rs

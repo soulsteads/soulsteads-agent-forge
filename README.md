@@ -29,9 +29,9 @@ Use Forge when a job needs to run repeatedly and you want more than a scheduler 
 
 **Early preview.** Forge targets Linux, requires PostgreSQL, and listens on loopback only. The example below needs no model, provider key, harness, or plugin.
 
-[![Agent Forge dashboard showing a successful release-readiness workflow and its three completed steps](docs/images/forge-dashboard.png)](docs/images/forge-dashboard.png)
+[![Agent Forge Workflows view showing the two release-readiness steps, a daily schedule, and a successful run](docs/images/forge-dashboard.png)](docs/images/forge-dashboard.png)
 
-*The Runs view showing a completed workflow in a demo Forge home.*
+*The Workflows view showing the quick-start example, its daily schedule, and a successful manual run.*
 
 ## Quick start
 
@@ -62,38 +62,24 @@ FORGE_TOKEN=$(jq -er '.actors.operator.token' "$FORGE_HOME/config.json") && expo
 
 ### 2. Run a two-step workflow
 
-Save this definition as `report.json`. The first step echoes a parameter; the second reads that step's output and returns a report.
-
-```json
-{
-  "type": "workflow",
-  "input": {
-    "params": {"task": "example checklist ready"},
-    "steps": [
-      {"id": "produce", "action": {"type": "echo", "input": {"text": {"$ref": "/params/task"}}}},
-      {"id": "consume", "needs": ["produce"], "action": {"type": "echo", "input": {"text": "Observed: ${/steps/produce/output/text}"}}}
-    ],
-    "output": {"report": {"$ref": "/steps/consume/output/text"}}
-  }
-}
-```
-
-Validate, register, and run it:
+Use the included [release-readiness import bundle](examples/release-readiness/import.json). The first step echoes a parameter; the second reads that step's output and returns a report. From the source checkout, preview, import, and run it:
 
 ```sh
-agent-forge workflows validate --file report.json
-agent-forge workflows create report --file report.json
-agent-forge workflows run report --key first-report --wait
+agent-forge definitions import examples/release-readiness/import.json --dry-run
+agent-forge definitions import examples/release-readiness/import.json
+agent-forge workflows run release-readiness --key first-report --wait
 ```
 
 A successful run returns `Observed: example checklist ready`. Open **Runs** in the dashboard, or run `agent-forge runs show RUN_ID` with the ID returned by the CLI. If you lose the submission response, repeat the same command with the same request key and parameters instead of using a new key.
 
+See [runnable examples](examples/README.md) for more, including a [Rust PR reviewer](examples/rust-pr-review/README.md) with structured findings and a changed-line citation check.
+
 ### 3. Put it on a schedule
 
-This schedule runs `report` every day at 09:00 UTC:
+This schedule runs `release-readiness` every day at 09:00 UTC:
 
 ```sh
-agent-forge schedules create daily-report --work-id report --cron '0 9 * * *' --tz UTC
+agent-forge schedules create daily-report --work-id release-readiness --cron '0 9 * * *' --tz UTC
 agent-forge schedules occurrences operator.daily-report
 ```
 
