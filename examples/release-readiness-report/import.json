@@ -1,0 +1,46 @@
+{
+  "format": "forge-definitions/v1",
+  "work": [
+    {
+      "id": "release-readiness-report",
+      "enabled": true,
+      "definition": {
+        "type": "workflow",
+        "input": {
+          "params": {
+            "mode": "fixture",
+            "fixture_id": "ready",
+            "repository": "forge-fixture/release-readiness",
+            "revision": "1111111111111111111111111111111111111111",
+            "tag": "v1.2.3",
+            "required_checks": ["build", "test"],
+            "required_artifacts": ["dist.tar.gz", "SHA256SUMS"],
+            "observed_at": "2026-10-09T10:00:00Z"
+          },
+          "steps": [
+            {
+              "id": "collect",
+              "action": {
+                "type": "plugin.release-readiness-report",
+                "input": {
+                  "mode": {"$ref": "/params/mode"},
+                  "fixture_id": {"$ref": "/params/fixture_id"},
+                  "repository": {"$ref": "/params/repository"},
+                  "revision": {"$ref": "/params/revision"},
+                  "tag": {"$ref": "/params/tag"},
+                  "required_checks": {"$ref": "/params/required_checks"},
+                  "required_artifacts": {"$ref": "/params/required_artifacts"},
+                  "observed_at": {"$ref": "/params/observed_at"}
+                }
+              }
+            }
+          ],
+          "output": {
+            "report": {"$ref": "/steps/collect/output/report"},
+            "receipt": {"$ref": "/steps/collect/output/receipt"}
+          }
+        }
+      }
+    }
+  ]
+}
