@@ -16,3 +16,7 @@ agent-forge workflows run release-readiness --key readiness-demo-1 --wait
 ```
 
 The `report` output is `Observed: example checklist ready`. Reuse the same key and parameters after an uncertain submission; use a new key for a genuinely new invocation. Open **Workflows** or **Runs** in the dashboard to inspect the saved definition and step evidence.
+
+## Release-readiness report collector
+
+See [the pinned release-readiness collector example](release-readiness-report/README.md) for a configured plugin workflow that collects evidence for one pinned repository revision and release tag.

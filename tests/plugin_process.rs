@@ -240,8 +240,10 @@ async fn plugin_environment_is_an_explicit_allowlist_and_never_carries_forge_cre
     }
     for (name, ok) in [
         ("FORGE_TOKEN", false),
+        ("FORGE_RELEASE_READINESS_ALLOWED_REPOSITORY", false),
         ("M3_DB_URL_VAR", false),
         ("PLUGIN_KEY", true),
+        ("RELEASE_READINESS_ALLOWED_REPOSITORY", true),
     ] {
         let policy: Policy = serde_json::from_str(&format!(
             r#"{{"home_id":"0123456789abcdef0123456789abcdef","actors":{{}},"database":{{"url_env":"M3_DB_URL_VAR"}},"plugins":{{"plugin.x":{{"command":["/bin/true"],"env_passthrough":["{name}"]}}}}}}"#

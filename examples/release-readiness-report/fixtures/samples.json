@@ -1,0 +1,130 @@
+{
+  "format": "github-release-readiness-fixtures/v1",
+  "scenarios": {
+    "ready": {
+      "checks": {
+        "state": "complete",
+        "total_count": 2,
+        "check_runs": [
+          {"id": 101, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+          {"id": 102, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+        ]
+      },
+      "tag": {
+        "state": "present",
+        "reference": "refs/tags/v1.2.3",
+        "objects": [
+          {"sha": "2222222222222222222222222222222222222222", "type": "tag"},
+          {"sha": "1111111111111111111111111111111111111111", "type": "commit"}
+        ]
+      },
+      "release": {
+        "state": "present",
+        "id": 501,
+        "tag_name": "v1.2.3",
+        "assets_state": "complete",
+        "assets": [
+          {"id": 601, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+          {"id": 602, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+        ]
+      }
+    },
+    "pending": {
+      "checks": {
+        "state": "complete",
+        "total_count": 2,
+        "check_runs": [
+          {"id": 201, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+          {"id": 202, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "in_progress", "conclusion": null}
+        ]
+      },
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 502, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 603, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 604, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    },
+    "failed": {
+      "checks": {
+        "state": "complete",
+        "total_count": 2,
+        "check_runs": [
+          {"id": 301, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+          {"id": 302, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "failure"}
+        ]
+      },
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 503, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 605, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 606, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    },
+    "no-tag": {
+      "checks": {"state": "complete", "total_count": 2, "check_runs": [
+        {"id": 401, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+        {"id": 402, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "absent"},
+      "release": {"state": "absent"}
+    },
+    "no-assets": {
+      "checks": {"state": "complete", "total_count": 2, "check_runs": [
+        {"id": 501, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+        {"id": 502, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 504, "tag_name": "v1.2.3", "assets_state": "complete", "assets": []}
+    },
+    "unavailable": {
+      "checks": {"state": "unavailable", "error": "network_error"},
+      "tag": {"state": "unavailable", "error": "timeout"},
+      "release": {"state": "unavailable", "error": "http_403"}
+    },
+    "partial": {
+      "checks": {"state": "partial", "total_count": 101, "check_runs": [
+        {"id": 701, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 505, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 607, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 608, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    },
+    "mismatched": {
+      "checks": {"state": "complete", "total_count": 2, "check_runs": [
+        {"id": 801, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+        {"id": 802, "name": "test", "head_sha": "3333333333333333333333333333333333333333", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 506, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 609, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 610, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    },
+    "tag-mismatched": {
+      "checks": {"state": "complete", "total_count": 2, "check_runs": [
+        {"id": 851, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+        {"id": 852, "name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [
+        {"sha": "2222222222222222222222222222222222222222", "type": "tag"},
+        {"sha": "3333333333333333333333333333333333333333", "type": "commit"}
+      ]},
+      "release": {"state": "present", "id": 508, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 613, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 614, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    },
+    "unverified": {
+      "checks": {"state": "complete", "total_count": 2, "check_runs": [
+        {"id": 901, "name": "build", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"},
+        {"name": "test", "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success"}
+      ]},
+      "tag": {"state": "present", "reference": "refs/tags/v1.2.3", "objects": [{"sha": "1111111111111111111111111111111111111111", "type": "commit"}]},
+      "release": {"state": "present", "id": 507, "tag_name": "v1.2.3", "assets_state": "complete", "assets": [
+        {"id": 611, "name": "dist.tar.gz", "state": "uploaded", "size": 4096},
+        {"id": 612, "name": "SHA256SUMS", "state": "uploaded", "size": 128}
+      ]}
+    }
+  }
+}

@@ -24,6 +24,10 @@ docs/reference.md
 docs/source-release.md
 docs/support.md
 examples/README.md
+examples/release-readiness-report/README.md
+examples/release-readiness-report/collector.py
+examples/release-readiness-report/fixtures/samples.json
+examples/release-readiness-report/import.json
 examples/release-readiness/import.json
 examples/rust-pr-review/README.md
 examples/rust-pr-review/import.json
