@@ -485,9 +485,8 @@ async fn exercise_mcp(client: &reqwest::Client, base: &str, core: &Core) {
         .json::<Value>()
         .await
         .unwrap();
-    assert_eq!(
-        accepted["result"]["isError"].as_bool().unwrap_or(false),
-        false,
+    assert!(
+        !accepted["result"]["isError"].as_bool().unwrap_or(false),
         "{accepted}"
     );
     assert!(core.work("operator", "via-mcp").is_ok());
