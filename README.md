@@ -35,6 +35,8 @@ Use Forge when a job needs to run repeatedly and you want more than a scheduler 
 
 ## Quick start
 
+Prefer Docker or Podman? See the [container deployment guide](docs/containers.md).
+
 You need **Rust 1.97 or later**, a **C compiler**, an **empty, dedicated PostgreSQL database**, and `jq` for the token command below. See the [tested setup](docs/support.md#tested-preview-path) for what has been exercised.
 
 ### 1. Install and start Forge

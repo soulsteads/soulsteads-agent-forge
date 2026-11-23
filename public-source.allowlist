@@ -1,8 +1,11 @@
+.dockerignore
 .github/workflows/ci.yml
+.github/workflows/container.yml
 .gitignore
 CHANGELOG.md
 Cargo.lock
 Cargo.toml
+Dockerfile
 LICENSE
 NOTICE
 README.md
@@ -14,6 +17,7 @@ assets/forge-core.js
 assets/forge-ui.css
 assets/forge-ui.js
 assets/forge-views.js
+docs/containers.md
 docs/flows.md
 docs/harness.md
 docs/images/forge-dashboard.png
@@ -57,6 +61,7 @@ scripts/qualify_plugins.py
 scripts/qualify_recovery.py
 scripts/qualify_recovery_browser.py
 scripts/qualify_upgrade.py
+scripts/smoke-container.sh
 scripts/smoke_installed.py
 skills/forge-operations/SKILL.md
 src/approvals.rs
