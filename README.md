@@ -25,7 +25,7 @@ Use Forge when a job needs to run repeatedly and you want more than a scheduler 
 
 - **Define the work once.** Write a workflow with explicit steps and inputs. Run it on demand or on a schedule in your chosen time zone.
 - **Inspect the outcome.** Follow a schedule occurrence to its run, read step output, and see where a failure or uncertain effect needs attention.
-- **Operate from the interface you prefer.** Use the local web dashboard or CLI, or integrate through the authenticated HTTP API or stdio MCP server. They use the same actor permissions.
+- **Operate from the interface you prefer.** Use the local web dashboard or CLI, or integrate through the authenticated HTTP API, stdio MCP, or optional Streamable HTTP MCP. They use the same actor permissions.
 
 **Early preview.** Forge targets Linux, requires PostgreSQL, and listens on loopback only. The example below needs no model, provider key, harness, or plugin.
 

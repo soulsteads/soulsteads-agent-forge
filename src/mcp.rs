@@ -1,4 +1,4 @@
-//! Native stdio MCP adapter. Only the authenticated HTTP service owns state.
+//! Shared MCP tools for the stdio adapter and Forge HTTP service.
 use crate::client::ApiClient;
 use anyhow::Result;
 use rmcp::{
@@ -15,8 +15,21 @@ use std::sync::Arc;
 
 const MAX_FRAME: usize = 1024 * 1024;
 
-struct Bridge {
-    client: ApiClient,
+enum Bridge {
+    Stdio(ApiClient),
+    Http(Arc<crate::core::Core>),
+}
+
+#[derive(Clone)]
+pub(crate) struct Principal(pub String);
+
+fn principal(context: &RequestContext<RoleServer>) -> Option<&str> {
+    context
+        .extensions
+        .get::<axum::http::request::Parts>()?
+        .extensions
+        .get::<Principal>()
+        .map(|principal| principal.0.as_str())
 }
 
 fn tools() -> Vec<Tool> {
@@ -415,12 +428,42 @@ fn failure(message: &str) -> CallToolResult {
 }
 
 impl Bridge {
-    async fn invoke(&self, method: &str, params: Value) -> CallToolResult {
-        match self.client.invoke(method, params).await {
-            Ok(result) => CallToolResult::success(vec![ContentBlock::text(result.to_string())]),
-            Err(error) => failure(&error.to_string()),
+    async fn operation(
+        &self,
+        context: &RequestContext<RoleServer>,
+        method: &str,
+        params: Value,
+    ) -> std::result::Result<Value, String> {
+        match self {
+            Self::Stdio(client) => client
+                .invoke(method, params)
+                .await
+                .map_err(|error| error.to_string()),
+            Self::Http(core) => {
+                let actor =
+                    principal(context).ok_or_else(|| "Forge bearer actor required".to_owned())?;
+                crate::server::invoke_mcp(core, actor, method, params).await
+            }
         }
     }
+}
+
+pub(crate) fn http(core: Arc<crate::core::Core>, host: std::net::IpAddr) -> axum::Router {
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
+    };
+    let config = StreamableHttpServerConfig::default()
+        .with_allowed_hosts(["localhost".into(), host.to_string()])
+        .enforce_origin_validation()
+        .with_legacy_session_mode(false)
+        .with_json_response(true)
+        .with_max_request_body_bytes(crate::client::MAX_REQUEST);
+    let service = StreamableHttpService::new(
+        move || Ok(Bridge::Http(core.clone())),
+        Arc::new(NeverSessionManager::default()),
+        config,
+    );
+    axum::Router::new().route_service("/mcp", service)
 }
 
 impl ServerHandler for Bridge {
@@ -432,11 +475,11 @@ impl ServerHandler for Bridge {
     async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> std::result::Result<ListToolsResult, ErrorData> {
         let mut all = tools();
         // Plugin tools are dynamic; an unreachable service just means none are listed.
-        if let Ok(descriptors) = self.client.invoke("plugin_tools", json!({})).await {
+        if let Ok(descriptors) = self.operation(&context, "plugin_tools", json!({})).await {
             all.extend(plugin_tools(&descriptors));
         }
         Ok(ListToolsResult {
@@ -448,7 +491,7 @@ impl ServerHandler for Bridge {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
         let arguments = Value::Object(request.arguments.clone().unwrap_or_default());
         let Some(tool) = tools().into_iter().find(|tool| tool.name == request.name) else {
@@ -456,8 +499,8 @@ impl ServerHandler for Bridge {
             // enabled, the actor may run it, and validates the arguments against its schema.
             if request.name.starts_with("plugin_") {
                 return Ok(match self
-                    .client
-                    .invoke(
+                    .operation(
+                        &context,
                         "plugin_mcp",
                         json!({"tool":request.name,"arguments":arguments}),
                     )
@@ -474,7 +517,7 @@ impl ServerHandler for Bridge {
                             CallToolResult::success(vec![ContentBlock::text(text)])
                         }
                     }
-                    Err(error) => failure(&error.to_string()),
+                    Err(error) => failure(&error),
                 }
                 .into());
             }
@@ -498,7 +541,11 @@ impl ServerHandler for Bridge {
         } else {
             method
         };
-        Ok(self.invoke(method, params).await.into())
+        Ok(match self.operation(&context, method, params).await {
+            Ok(result) => CallToolResult::success(vec![ContentBlock::text(result.to_string())]),
+            Err(error) => failure(&error),
+        }
+        .into())
     }
 }
 
@@ -508,7 +555,11 @@ pub async fn serve(url: String, token_env: String) -> Result<()> {
     let (read, write) = rmcp::transport::stdio_pipes();
     let transport =
         AsyncRwTransport::<RoleServer, _, _>::new(read, write).with_max_line_length(MAX_FRAME);
-    Bridge { client }.serve(transport).await?.waiting().await?;
+    Bridge::Stdio(client)
+        .serve(transport)
+        .await?
+        .waiting()
+        .await?;
     Ok(())
 }
 

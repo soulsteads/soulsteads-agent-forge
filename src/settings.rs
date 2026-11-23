@@ -174,9 +174,19 @@ pub struct ServerConfig {
     pub host: Option<IpAddr>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_http: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TlsConfig>,
     /// Service URL the CLI and MCP bridge call when no `--url`/`FORGE_URL` is given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TlsConfig {
+    pub certificate: PathBuf,
+    pub private_key: PathBuf,
 }
 /// DBOS identity and capacity. Names stay derived from the home ID; only the
 /// prefix is configurable so one database can host many homes without collision.
@@ -478,6 +488,8 @@ impl Database {
 pub struct Server {
     pub host: IpAddr,
     pub port: u16,
+    pub mcp_http: bool,
+    pub tls: Option<TlsConfig>,
     /// The URL the CLI and MCP bridge call.
     pub url: String,
 }
@@ -512,6 +524,7 @@ pub const EDITABLE: &[&str] = &[
     "server.host",
     "server.port",
     "server.url",
+    "server.mcp_http",
     "dbos.application_prefix",
     "dbos.schema_prefix",
     "dbos.work_concurrency",
@@ -546,10 +559,10 @@ fn env_name_ok(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
-fn server_url(host: IpAddr, port: u16) -> String {
+fn server_url(host: IpAddr, port: u16, scheme: &str) -> String {
     match host {
-        IpAddr::V4(v4) => format!("http://{v4}:{port}"),
-        IpAddr::V6(v6) => format!("http://[{v6}]:{port}"),
+        IpAddr::V4(v4) => format!("{scheme}://{v4}:{port}"),
+        IpAddr::V6(v6) => format!("{scheme}://[{v6}]:{port}"),
     }
 }
 fn server_settings(config: &ServerConfig, o: &Overrides, env: Env) -> Result<Server> {
@@ -572,13 +585,27 @@ fn server_settings(config: &ServerConfig, o: &Overrides, env: Env) -> Result<Ser
             .or_else(|_| refuse(format!("{ENV_PORT} must be a port number")))?,
         (None, None) => config.port.unwrap_or(DEFAULT_PORT),
     };
+    let scheme = if let Some(tls) = &config.tls {
+        if !tls.certificate.is_absolute() || !tls.private_key.is_absolute() {
+            return refuse("server.tls certificate and private_key must use absolute paths");
+        }
+        "https"
+    } else {
+        "http"
+    };
     let url = o
         .url
         .clone()
         .or_else(|| env(ENV_URL))
         .or_else(|| config.url.clone())
-        .unwrap_or_else(|| server_url(host, port));
-    Ok(Server { host, port, url })
+        .unwrap_or_else(|| server_url(host, port, scheme));
+    Ok(Server {
+        host,
+        port,
+        url,
+        mcp_http: config.mcp_http.unwrap_or(false),
+        tls: config.tls.clone(),
+    })
 }
 fn bounded<T: PartialOrd + std::fmt::Display + Copy>(
     name: &str,
@@ -722,6 +749,8 @@ impl Settings {
                 "server.url",
                 source(o.url.is_some(), Some(ENV_URL), s.url.is_some()),
             ),
+            ("server.mcp_http", source(false, None, s.mcp_http.is_some())),
+            ("server.tls", source(false, None, s.tls.is_some())),
             (
                 "dbos.application_prefix",
                 source(false, None, d.application_prefix.is_some()),
@@ -830,6 +859,8 @@ impl Settings {
                 "server.host" => json!(self.server.host.to_string()),
                 "server.port" => json!(self.server.port),
                 "server.url" => json!(self.server.url),
+                "server.mcp_http" => json!(self.server.mcp_http),
+                "server.tls" => json!(self.server.tls.is_some()),
                 "dbos.application_prefix" => json!(self.dbos.application_prefix),
                 "dbos.schema_prefix" => json!(self.dbos.schema_prefix),
                 "dbos.work_concurrency" => json!(self.dbos.work_concurrency),
