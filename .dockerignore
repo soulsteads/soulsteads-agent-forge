@@ -1,0 +1,18 @@
+# Only build inputs; Git history and operator state are not sent to the builder.
+**
+!Cargo.toml
+!Cargo.lock
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
+!src/**
+!assets/**
+!skills/**
+
+# Keep local credentials and Python artifacts out even under source directories.
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/__pycache__
+**/*.pyc
