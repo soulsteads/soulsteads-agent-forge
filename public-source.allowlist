@@ -110,6 +110,7 @@ src/service_unit.rs
 src/settings.rs
 src/skills.rs
 src/subagents.rs
+src/tls.rs
 src/transfer.rs
 src/work_input.rs
 src/workflow_credentials.rs
