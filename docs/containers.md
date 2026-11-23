@@ -24,8 +24,14 @@ a host home or the container-engine socket.
 ## Initialize and run Forge
 
 Use native Linux and a dedicated, empty PostgreSQL database (PostgreSQL 18
-matches the source quickstart's tested path). It can run on the host or on a
-separate container whose PostgreSQL port is published **only** on host loopback.
+matches the source quickstart's tested path). For a separate PostgreSQL
+container, publish its port **only** on host loopback and use Podman or Docker
+Engine 28.0.0 or newer (check the server version with `docker version`).
+[Older Docker Engine releases](https://docs.docker.com/engine/network/port-publishing/#publishing-ports)
+can expose localhost-published ports to other hosts on the same network
+segment. If you can't meet this requirement, use PostgreSQL running directly
+on the host with a loopback listener instead.
+
 The Forge image does not include a database, agent harnesses, or executable
 plugins. Start with the no-model workflow in the [quick start](../README.md#quick-start).
 

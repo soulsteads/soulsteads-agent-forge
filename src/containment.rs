@@ -167,10 +167,11 @@ impl Contained {
     /// `root_reaped` means the direct child was already waited for, so its pid
     /// must not be signalled (pid-reuse guard).
     pub fn kill(&self, root_reaped: bool) -> Result<()> {
-        kill_invocation(
+        terminate_invocation(
             &self.invocation,
             self.cgroup.as_deref(),
             self.root.filter(|_| !root_reaped),
+            true,
         )
     }
     pub fn cleanup(&mut self) -> Result<()> {
@@ -187,7 +188,7 @@ impl Contained {
 impl Drop for Contained {
     fn drop(&mut self) {
         if self.armed {
-            let _ = self.kill(false);
+            let _ = kill_invocation(&self.invocation, self.cgroup.as_deref(), self.root);
             let _ = self.cleanup();
         }
     }
@@ -285,6 +286,15 @@ fn kill_pid(pid: i32, context: &'static str) -> Result<()> {
 /// remain before returning. The scan fallback retains its documented limitation
 /// for an environment-scrubbing, detached process outside the descendant tree.
 pub fn kill_invocation(invocation: &str, cgroup: Option<&Path>, root: Option<u32>) -> Result<()> {
+    terminate_invocation(invocation, cgroup, root, false)
+}
+
+fn terminate_invocation(
+    invocation: &str,
+    cgroup: Option<&Path>,
+    root: Option<u32>,
+    preserve_root_status: bool,
+) -> Result<()> {
     if let Some(path) = cgroup {
         for _ in 0..40 {
             if cgroup_pids(path)?.is_empty() {
@@ -318,13 +328,22 @@ pub fn kill_invocation(invocation: &str, cgroup: Option<&Path>, root: Option<u32
             kill_pid(*pid as i32, "contained process could not be killed")?;
         }
         std::thread::sleep(Duration::from_millis(50));
-        for pid in victims {
-            // Reap reparented zombies that became our children; ECHILD otherwise.
-            let mut status = 0;
-            unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) };
-        }
+        reap_scan_victims(victims, root.filter(|_| preserve_root_status));
     }
     anyhow::bail!("contained scan termination could not be confirmed")
+}
+
+fn reap_scan_victims(victims: BTreeSet<u32>, direct_child: Option<u32>) {
+    for pid in victims {
+        // The live caller must wait on its Child. If the scan caught the
+        // root before it exited, reaping it here would make that wait fail.
+        if Some(pid) == direct_child {
+            continue;
+        }
+        // Reap reparented zombies that became our children; ECHILD otherwise.
+        let mut status = 0;
+        unsafe { libc::waitpid(pid as i32, &mut status, libc::WNOHANG) };
+    }
 }
 
 /// Is anything of this invocation still alive? A filesystem/procfs read failure
@@ -388,8 +407,36 @@ pub fn reconcile_invocation(invocation: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-mod leaf_tests {
-    use super::remove_leaf;
+mod tests {
+    use super::{read_stat_full, reap_scan_victims, remove_leaf};
+    use std::time::{Duration, Instant};
+    use std::{os::unix::process::ExitStatusExt, process::Command};
+
+    #[test]
+    fn scan_termination_leaves_the_direct_child_for_its_owner_to_reap() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id();
+        // Model a snapshot that found the root alive, followed by its exit
+        // before the reap pass. Observe the zombie without consuming its status.
+        child.kill().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !read_stat_full(pid).is_some_and(|(state, _, _)| state == 'Z') {
+            if Instant::now() >= deadline {
+                let _ = child.wait();
+                panic!("direct child did not become waitable");
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        reap_scan_victims([pid].into_iter().collect(), Some(pid));
+        assert_eq!(
+            child
+                .wait()
+                .expect("containment must not consume the direct child exit status")
+                .signal(),
+            Some(libc::SIGKILL)
+        );
+    }
+
     #[test]
     fn a_missing_leaf_is_already_removed_but_other_failures_stay_fatal() {
         let dir = tempfile::tempdir().unwrap();
