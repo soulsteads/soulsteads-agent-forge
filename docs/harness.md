@@ -92,11 +92,12 @@ Native journals are retained for inspection, never adopted as Forge receipts.
 Deterministic fixtures establish protocol handling only. The native CLI emulator
 in `cargo test` uses Python 3.11+ (`tomllib`); it makes no model calls and executes
 no native harness. Those fixtures do not qualify all crash windows or native permission behavior.
-The existing containment policy applies, including scan-mode limits. On a host
-without cgroups, scan termination can reap the direct child before Tokio waits
-(`ECHILD`); the effect remains uncertain and the attempt may retain `running`
-until startup reconciliation records `process_lost`. This is not a successful
-cancellation receipt or permission to relaunch. Preserve and inspect that evidence.
+The existing containment policy applies, including scan-mode limits. With scan
+containment, Forge terminates the discovered process tree and lets the harness
+controller reap its direct child. When Forge observes cancellation and confirms
+teardown, it records the attempt as `cancelled`; if the deadline wins first,
+the attempt is `timed_out`. The external effect remains `uncertain` and must be
+reconciled before any relaunch.
 
 ## ACP and Pi transports
 
