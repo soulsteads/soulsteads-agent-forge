@@ -280,6 +280,7 @@ inventory does not replace those notices.
 | sqlx-macros | 0.9.0 | MIT OR Apache-2.0 |
 | sqlx-macros-core | 0.9.0 | MIT OR Apache-2.0 |
 | sqlx-postgres | 0.9.0 | MIT OR Apache-2.0 |
+| sse-stream | 0.2.6 | MIT OR Apache-2.0 |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 |
 | stringprep | 0.1.5 | MIT/Apache-2.0 |
 | strsim | 0.11.1 | MIT |

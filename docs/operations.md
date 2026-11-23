@@ -163,6 +163,42 @@ Reconciliation requires the literal `--settled` flag and operator authority. A c
 
 Configure a stdio MCP server with command `agent-forge`, arguments `["mcp", "--url", "http://127.0.0.1:8110"]`, and a privately supplied `FORGE_TOKEN`. `--token-env NAME` selects another variable. This Rust process forwards operations to the authenticated API; it opens no database and starts no executor. Mutation tools declare that they write state, so the harness's normal approval rules apply.
 
+Enable a native Streamable HTTP MCP endpoint by setting `server.mcp_http` to
+`true` in the private `config.json` and restarting Forge. Configure the
+MCP client to use the `/mcp` URL and send its Forge bearer token as
+`Authorization: Bearer TOKEN` on each request. The same actor permissions apply
+to tools and plugin discovery across both transports.
+
+### Serve MCP over HTTPS
+
+Configure the listener with the PEM certificate chain and owner-only PEM
+private key. Example private `config.json` section:
+
+```json
+{
+  "server": {
+    "mcp_http": true,
+    "tls": {
+      "certificate": "/private/forge/forge-fullchain.pem",
+      "private_key": "/private/forge/forge-key.pem"
+    }
+  }
+}
+```
+
+Restart Forge and use `https://127.0.0.1:8110/mcp` with the default bind address
+and port. Use a certificate that covers the client URL and configure the
+client to trust the issuing CA. The CLI uses HTTPS automatically for the
+default service URL when TLS is enabled. A certificate for `localhost`
+can use `server.url` set to `https://localhost:8110`. Restart to load new
+certificate or key files.
+
+Forge listens on loopback for both HTTP and HTTPS. For remote access, use an
+authenticating proxy that forwards the loopback Host and preserves the bearer
+header. The native endpoint uses stateless MCP requests and accepts
+non-browser clients from the configured loopback Host or `localhost`.
+
+
 Copy `../skills/forge-operations` from this checkout into your harness's supported skills directory, or use `agent-forge skill` to print the embedded `SKILL.md` from an installed binary. `cargo install` installs the binary; it does not modify native harness configuration or install skills into an existing home. Follow the skill's registration, execution, scheduled-run observation, and failure diagnosis workflow. Home and other Soulsteads products are optional.
 
 The API is `POST /api` with bearer authentication and JSON `{"method":"snapshot","params":{}}`. The dashboard, operational CLI and MCP use that same contract. The MCP tools are `forge_overview`, `forge_agents`, `forge_run_logs`, `forge_schedule_stats`, `forge_approvals`, `forge_approve`, `forge_reject`, `forge_skills`, `forge_skill_show`, `forge_settings`, `forge_settings_set`, `forge_providers`, `forge_provider_set`, `forge_provider_remove`, `forge_backups`, `forge_backup_start`, `forge_snapshot`, `forge_work`, `forge_validate`, `forge_runs`, `forge_register`, `forge_enable`, `forge_run`, `forge_inspect`, `forge_schedule`, `forge_schedule_action`, `forge_schedule_occurrences`, `forge_schedule_show`, `forge_schedule_preview`, `forge_schedule_trigger`, `forge_queues`, `forge_cancel`, `forge_retry`, and `forge_reconcile`.

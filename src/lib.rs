@@ -33,6 +33,7 @@ pub mod server;
 pub mod service_unit;
 pub mod skills;
 pub mod subagents;
+mod tls;
 mod transfer;
 pub mod workflow_credentials;
 pub mod workflows;

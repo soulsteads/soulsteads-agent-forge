@@ -372,3 +372,203 @@ async fn configuration_refusals_reach_the_client_as_bounded_messages_and_new_ope
         .unwrap();
     assert_eq!(skills["result"]["skills"][0]["name"], "forge-operations");
 }
+
+fn enable_mcp(core: &Core) {
+    let mut settings = crate::settings::Settings::for_tests(&core.policy);
+    settings.server.mcp_http = true;
+    core.settings.set(settings).unwrap();
+}
+
+fn mcp_request(
+    client: &reqwest::Client,
+    base: &str,
+    method: &str,
+    params: Value,
+) -> reqwest::RequestBuilder {
+    client
+        .post(format!("{base}/mcp"))
+        .header("Accept", "application/json, text/event-stream")
+        .header("MCP-Protocol-Version", "2025-06-18")
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}))
+}
+
+async fn exercise_mcp(client: &reqwest::Client, base: &str, core: &Core) {
+    let initialize = || {
+        mcp_request(
+            client,
+            base,
+            "initialize",
+            json!({
+                "protocolVersion":"2025-06-18","capabilities":{},
+                "clientInfo":{"name":"forge-test","version":"1"}
+            }),
+        )
+    };
+    let operator = &core.policy.actors["operator"].token;
+    let reader = &core.policy.actors["stranger"].token;
+    let unauthorized = initialize().send().await.unwrap();
+    assert_eq!(unauthorized.status(), 401);
+    assert_eq!(unauthorized.headers()["www-authenticate"], "Bearer");
+    assert_eq!(
+        initialize()
+            .bearer_auth("invalid")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        initialize()
+            .bearer_auth(reader)
+            .header("origin", "https://example.invalid")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert!(
+        !initialize()
+            .bearer_auth(reader)
+            .header("host", "example.invalid")
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
+    );
+    let response = initialize().bearer_auth(reader).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response.headers().get("mcp-session-id").is_none());
+    assert!(response.json::<Value>().await.unwrap()["result"]["capabilities"]["tools"].is_object());
+
+    let list = mcp_request(client, base, "tools/list", json!({}))
+        .bearer_auth(reader)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    let tools = list["result"]["tools"].as_array().unwrap();
+    assert!(tools.iter().any(
+        |tool| tool["name"] == "forge_register" && tool["annotations"]["readOnlyHint"] == false
+    ));
+
+    let register = || {
+        mcp_request(
+            client,
+            base,
+            "tools/call",
+            json!({
+                "name":"forge_register",
+                "arguments":{"work_id":"via-mcp","definition":{"type":"echo","input":{"text":"hello"}}}
+            }),
+        )
+    };
+    let denied = register()
+        .bearer_auth(reader)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(denied["result"]["isError"], true, "{denied}");
+    assert!(core.work("operator", "via-mcp").is_err());
+    let accepted = register()
+        .bearer_auth(operator)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap();
+    assert_eq!(
+        accepted["result"]["isError"].as_bool().unwrap_or(false),
+        false,
+        "{accepted}"
+    );
+    assert!(core.work("operator", "via-mcp").is_ok());
+}
+
+#[tokio::test]
+async fn streamable_mcp_is_configurable_and_authorizes_each_request() {
+    let (_home, core) = core();
+    let client = reqwest::Client::new();
+    let base = serve(core.clone()).await;
+    assert_eq!(
+        mcp_request(&client, &base, "tools/list", json!({}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    enable_mcp(&core);
+    let base = serve(core.clone()).await;
+    exercise_mcp(&client, &base, &core).await;
+}
+
+#[tokio::test]
+async fn streamable_mcp_over_https_uses_the_configured_certificate() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_home, core) = core();
+    enable_mcp(&core);
+    let tls = tempfile::tempdir().unwrap();
+    let certificate = tls.path().join("cert.pem");
+    let private_key = tls.path().join("key.pem");
+    let output = std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-noenc",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-addext",
+            "basicConstraints=critical,CA:FALSE",
+            "-keyout",
+        ])
+        .arg(&private_key)
+        .arg("-out")
+        .arg(&certificate)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::set_permissions(&private_key, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let server_tls = crate::settings::TlsConfig {
+        certificate: certificate.clone(),
+        private_key,
+    };
+    let acceptor = crate::tls::acceptor(&server_tls).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("https://{}", listener.local_addr().unwrap());
+    let app = crate::server::router(core.clone());
+    tokio::spawn(async move {
+        axum::serve(crate::tls::Listener::new(listener, acceptor), app)
+            .await
+            .unwrap();
+    });
+    let untrusted = reqwest::Client::new().get(&base).send().await;
+    assert!(untrusted.is_err());
+    let cert = reqwest::Certificate::from_pem(&std::fs::read(&certificate).unwrap()).unwrap();
+    let client = reqwest::Client::builder()
+        .tls_certs_merge([cert])
+        .build()
+        .unwrap();
+    exercise_mcp(&client, &base, &core).await;
+}

@@ -454,6 +454,50 @@ fn bearer(core: &Core, headers: &HeaderMap) -> Result<String> {
         .ok_or(Denied("Bearer authentication required"))?;
     core.actor(token)
 }
+pub(crate) async fn invoke_mcp(
+    core: &Arc<Core>,
+    actor: &str,
+    method: &str,
+    params: Value,
+) -> std::result::Result<Value, String> {
+    let params = match params {
+        Value::Object(params) => params,
+        _ => return Err("Forge tool parameters must be an object".into()),
+    };
+    dispatch(
+        core,
+        actor,
+        Request {
+            method: method.into(),
+            params,
+        },
+    )
+    .await
+    .map_err(|error| failure(&error).1)
+}
+
+async fn authorize_mcp(
+    State(core): State<Arc<Core>>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Ok(actor) = bearer(&core, request.headers()) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
+            "Forge bearer authentication required",
+        )
+            .into_response();
+    };
+    request
+        .headers_mut()
+        .remove(axum::http::header::AUTHORIZATION);
+    request
+        .extensions_mut()
+        .insert(crate::mcp::Principal(actor));
+    next.run(request).await
+}
+
 /// `/api/plugins/<id>/<route>`: the same bearer authentication as `/api`, then only
 /// routes and methods the plugin's manifest declares, with its declared body limit.
 async fn plugin_http(
@@ -652,7 +696,7 @@ async fn security_headers<B>(mut response: axum::http::Response<B>) -> axum::htt
 }
 /// Every HTTP route of the service (also used by tests against a real listener).
 pub(crate) fn router(core: Arc<Core>) -> Router {
-    Router::new()
+    let routes = Router::new()
         .route(
             "/",
             get(|| async { Html(include_str!("../assets/dashboard.html")) }),
@@ -662,9 +706,20 @@ pub(crate) fn router(core: Arc<Core>) -> Router {
         .route("/api/stream", post(stream))
         .route("/api/plugins/{id}/{*rest}", any(plugin_http))
         .route("/plugins/{id}/assets/{*path}", get(plugin_asset))
+        .with_state(core.clone());
+    let routes = if let Some(server) = core.settings.get().map(|settings| &settings.server)
+        && server.mcp_http
+    {
+        routes.merge(
+            crate::mcp::http(core.clone(), server.host)
+                .route_layer(axum::middleware::from_fn_with_state(core, authorize_mcp)),
+        )
+    } else {
+        routes
+    };
+    routes
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::map_response(security_headers))
-        .with_state(core)
 }
 pub async fn serve(settings: Settings, policy: crate::core::Policy) -> Result<()> {
     let (host, port) = (settings.server.host, settings.server.port);
@@ -673,6 +728,12 @@ pub async fn serve(settings: Settings, policy: crate::core::Policy) -> Result<()
             "server host {host} is not a loopback address: Forge serves only 127.0.0.0/8 or ::1"
         ));
     }
+    let tls = settings
+        .server
+        .tls
+        .as_ref()
+        .map(crate::tls::acceptor)
+        .transpose()?;
     let home = settings.paths.home.clone();
     let config = settings.runtime_config(&policy)?;
     let resolved = settings.clone();
@@ -754,14 +815,20 @@ pub async fn serve(settings: Settings, policy: crate::core::Policy) -> Result<()
     // A decision recorded just before a crash may not have woken its waiting run.
     core.approvals_redeliver().await?;
     let app = router(core.clone());
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let mut term =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                    .expect("signal registration");
-            tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{}}
-        })
-        .await;
+    let shutdown = async {
+        let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("signal registration");
+        tokio::select! {_=tokio::signal::ctrl_c()=>{},_=term.recv()=>{}}
+    };
+    let result = if let Some(acceptor) = tls {
+        axum::serve(crate::tls::Listener::new(listener, acceptor), app)
+            .with_graceful_shutdown(shutdown)
+            .await
+    } else {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await
+    };
     runtime.shutdown().await;
     let close = crate::plugin::close(&core.home, &core.plugins).await;
     if let Some(client) = core.client.get() {
