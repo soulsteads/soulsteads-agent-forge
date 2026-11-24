@@ -59,7 +59,7 @@ of the grant metadata retained in backups.
 Keep both the encrypted files and the systemd credential directory outside the
 Forge home, including through bind mounts or alternate paths. Never put the
 encrypted files in the repository. For a systemd user service named
-`agent-forge`, one way to provision an encrypted file
+`soulsteads-forge`, one way to provision an encrypted file
 without putting the token in a command argument or shell history is:
 
 ```sh
@@ -92,8 +92,8 @@ Save this definition as `release-readiness.json`:
 ```
 
 ```sh
-agent-forge workflows create release-readiness --file release-readiness.json
-agent-forge workflows run release-readiness --key first-check --wait
+soulsteads-forge workflows create release-readiness --file release-readiness.json
+soulsteads-forge workflows run release-readiness --key first-check --wait
 ```
 
 The same grant is enforced when the run starts manually or from a schedule. A
@@ -143,15 +143,15 @@ Defaults are no tools, at most 8 model rounds and 32 tool calls. Explicit bounds
 
 ```sh
 printf '%s\n' '{"task":"new evidence"}' > params.json
-agent-forge work run report --key report-request-1 --params params.json
-agent-forge runs inspect ACTUAL_RUN_ID
-agent-forge schedules create daily-report --work-id report --cron '0 9 * * *' --tz America/Chicago --params params.json
-agent-forge schedules list
+soulsteads-forge work run report --key report-request-1 --params params.json
+soulsteads-forge runs inspect ACTUAL_RUN_ID
+soulsteads-forge schedules create daily-report --work-id report --cron '0 9 * * *' --tz America/Chicago --params params.json
+soulsteads-forge schedules list
 ```
 
 `--params -` reads one JSON object from stdin. Explicit values shallowly override definition defaults. The canonical `run` and `schedule` API/MCP methods accept the same optional `params` object; the dashboard has corresponding JSON fields. Parameter bytes are stored immutably and digest-bound to admission. Reusing a request key with different parameters is refused. Nonempty invocation parameters require a root workflow or agent; ordinary root leaves keep their existing behavior.
 
-Use the returned canonical schedule name for pause, resume and delete. Verify an actual due run and its terminal output with `agent-forge schedules occurrences NAME` (MCP `forge_schedule_occurrences`, API `schedule_occurrences` with `name` and optional `limit` 1–100). Each entry carries the native occurrence identity `sched-NAME-TIME`, its `scheduled_time`, the native `handoff` status of the firing, and the single admitted `run_id` with a bounded summary of that run's own status and output; one occurrence admits at most one run. The run is resolved from the occurrence's deterministic admission identity, not from the handoff's acknowledgement, so a handoff that failed or is still in progress after admitting still reports the run that maintenance submits and executes. `run_id: null` means no admission exists for that occurrence (for example a refusal before admission, or a handoff not yet admitted). Readback uses retained native firings and admissions, so it survives service restart, pause and delete. It requires `read` authority and is limited to the schedule's own actor. Creating a schedule or admitting a run does not prove completion.
+Use the returned canonical schedule name for pause, resume and delete. Verify an actual due run and its terminal output with `soulsteads-forge schedules occurrences NAME` (MCP `forge_schedule_occurrences`, API `schedule_occurrences` with `name` and optional `limit` 1–100). Each entry carries the native occurrence identity `sched-NAME-TIME`, its `scheduled_time`, the native `handoff` status of the firing, and the single admitted `run_id` with a bounded summary of that run's own status and output; one occurrence admits at most one run. The run is resolved from the occurrence's deterministic admission identity, not from the handoff's acknowledgement, so a handoff that failed or is still in progress after admitting still reports the run that maintenance submits and executes. `run_id: null` means no admission exists for that occurrence (for example a refusal before admission, or a handoff not yet admitted). Readback uses retained native firings and admissions, so it survives service restart, pause and delete. It requires `read` authority and is limited to the schedule's own actor. Creating a schedule or admitting a run does not prove completion.
 
 ## Reading workflow results
 
@@ -170,7 +170,7 @@ Each external call has its own immutable effect identity, resolved action/destin
 An authorized operator can record settled provider evidence:
 
 ```sh
-agent-forge runs reconcile RUN_ID --effect-id EFFECT_ID --decision completed --note 'Provider receipt verified after settlement' --settled --output verified-output.json
+soulsteads-forge runs reconcile RUN_ID --effect-id EFFECT_ID --decision completed --note 'Provider receipt verified after settlement' --settled --output verified-output.json
 ```
 
 Use `not-applied` only with explicit provider evidence that no operation occurred. An omitted selector is allowed only when exactly one unresolved flow effect exists. Reconciliation records the exact effect decision and permanently fences the parent; it does not resume a cached native failure or change that terminal execution into success. This MVP refuses linked retries of any flow with external-effect history, including completed and reconciled calls. Native recovery of interrupted pending workflows remains supported. This deliberate limit avoids redoing earlier operations when a later action fails.

@@ -232,7 +232,7 @@ pub(crate) fn workflow_steps(definition: &Value, run: &Value) -> Option<Value> {
                 None
             } else if uncertain || rejected || refusals.is_empty() {
                 let hint = format!(
-                    "Location unknown: native checkpoints and refusal audit do not establish where this run stopped; inspect native checkpoints and audit with agent-forge runs show {} --json",
+                    "Location unknown: native checkpoints and refusal audit do not establish where this run stopped; inspect native checkpoints and audit with soulsteads-forge runs show {} --json",
                     run["run_id"].as_str().unwrap_or("<run>")
                 );
                 Some(json!({"location":"unknown","step":Value::Null,"index":Value::Null,"reason":hint,"unverified_refusals":refusals}))
@@ -464,7 +464,7 @@ mod tests {
         assert!(f["step"].is_null() && f["index"].is_null());
         let reason = f["reason"].as_str().unwrap();
         assert!(reason.starts_with("Location unknown:"));
-        assert!(reason.contains("agent-forge runs show r1 --json"));
+        assert!(reason.contains("soulsteads-forge runs show r1 --json"));
         assert!(!reason.contains("input reference failed"));
         assert_eq!(
             f["unverified_refusals"],

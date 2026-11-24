@@ -231,7 +231,7 @@ mod tests {
 fn uncertain(method: &str, what: &str) -> String {
     if method == "schedule_trigger" {
         format!(
-            "{what} The manual schedule run may or may not have started; its outcome is unknown. It was not retried, and a schedule run has no request key: running it again starts another run. Check the schedule's history for a manual occurrence (agent-forge schedules history NAME, or MCP forge_schedule_show) and the run list before deciding."
+            "{what} The manual schedule run may or may not have started; its outcome is unknown. It was not retried, and a schedule run has no request key: running it again starts another run. Check the schedule's history for a manual occurrence (soulsteads-forge schedules history NAME, or MCP forge_schedule_show) and the run list before deciding."
         )
     } else {
         format!("{what} Inspect state before retrying; keep the same request key.")

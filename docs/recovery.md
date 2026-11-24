@@ -9,7 +9,7 @@ Never run a restored executor alongside its source. Both retain the same workflo
 Leave PostgreSQL running and stop Forge. Point Forge at the source database (`FORGE_DATABASE_URL`, `--database-url`, or the home's `database` configuration; see [Configuration](operations.md#configuration)), then run:
 
 ```sh
-agent-forge --home "$FORGE_HOME" backup ./forge-backup
+soulsteads-forge --home "$FORGE_HOME" backup ./forge-backup
 ```
 
 The destination must not exist and must be outside the source home. Its parent must exist. The command holds the same exclusive home lock used by the service, validates the source's sealed database identity and SQLite admission store, copies the private home, and saves a custom-format dump of its exact DBOS schema. A manifest records file digests. Configuration, prompts, outputs, receipts, and credentials in the home remain private operational data.
@@ -25,7 +25,7 @@ A failed backup retains an `INCOMPLETE` marker and is not accepted for restorati
 Provide a new, nonexistent home path and an empty dedicated database on the same PostgreSQL major version. Resolve the destination database the same way (for example `FORGE_DATABASE_URL`) before running:
 
 ```sh
-agent-forge --home ./restored-home restore ./forge-backup
+soulsteads-forge --home ./restored-home restore ./forge-backup
 ```
 
 The archive preserves the home's layout. Check what will move before restoring:
@@ -85,7 +85,7 @@ its executor stopped while inspecting the restored copy.
 
 ## Diagnosing with doctor
 
-Before and after any recovery, `agent-forge doctor` (read-only; see [operations](operations.md#doctor)) reports lost runs (an admission without a native workflow), orphan native workflows, runs in `RECOVERY_REQUIRED`, definitions that no longer validate and broken plugin releases, with the exact next command. It works with the service stopped (`--offline`) for the database and home checks.
+Before and after any recovery, `soulsteads-forge doctor` (read-only; see [operations](operations.md#doctor)) reports lost runs (an admission without a native workflow), orphan native workflows, runs in `RECOVERY_REQUIRED`, definitions that no longer validate and broken plugin releases, with the exact next command. It works with the service stopped (`--offline`) for the database and home checks.
 
 ## Online backup consistency and lost runs
 

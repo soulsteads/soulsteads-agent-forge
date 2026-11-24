@@ -553,7 +553,7 @@ fn doctor_names_the_exact_config_change_for_a_pre_m3_home() {
         .unwrap_err()
         .to_string();
     assert!(
-        err.contains("agent-forge doctor") && err.contains("approve"),
+        err.contains("soulsteads-forge doctor") && err.contains("approve"),
         "{err}"
     );
     let (_h2, fresh) = core_with(|_| {});
@@ -789,7 +789,7 @@ fn the_service_unit_never_carries_the_database_credential() {
     use std::os::unix::fs::PermissionsExt;
     let (home, core) = core_with(|_| {});
     let settings = Settings::for_tests(&core.policy);
-    let exe = std::path::Path::new("/opt/forge bin/agent-forge");
+    let exe = std::path::Path::new("/opt/forge bin/soulsteads-forge");
     let refused = crate::service_unit::unit_text(&settings, &core.policy, exe, None)
         .unwrap_err()
         .to_string();
@@ -817,7 +817,7 @@ fn the_service_unit_never_carries_the_database_credential() {
     let text = crate::service_unit::unit_text(&settings, &core.policy, exe, Some(&env)).unwrap();
     assert!(text.starts_with("# Managed-By: agent-forge\n"));
     assert!(text.contains(&format!("EnvironmentFile={}", env.display())));
-    assert!(text.contains("ExecStart=\"/opt/forge bin/agent-forge\" --home "));
+    assert!(text.contains("ExecStart=\"/opt/forge bin/soulsteads-forge\" --home "));
     assert!(text.contains(&format!(
         "--host {} --port {}",
         settings.server.host, settings.server.port
@@ -861,6 +861,59 @@ fn the_service_unit_never_carries_the_database_credential() {
     for bad in ["", "Up", "a b", "../x", "-x", "x.service"] {
         assert!(crate::service_unit::unit_name(Some(bad)).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn system_service_preview_runs_as_a_non_root_account_without_loading_app_settings() {
+    let text = crate::service_unit::system_unit_text(
+        std::path::Path::new("/srv/forge/home"),
+        std::path::Path::new("/usr/local/bin/soulsteads-forge"),
+        "forge-service",
+        None,
+    )
+    .unwrap();
+    assert!(text.contains("User=forge-service\n"), "{text}");
+    assert!(
+        text.contains(
+            "ExecStart=\"/usr/local/bin/soulsteads-forge\" --home \"/srv/forge/home\" serve\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("--host"), "{text}");
+    assert!(!text.contains("postgresql://"), "{text}");
+    assert!(
+        crate::service_unit::system_unit_text(
+            std::path::Path::new("/srv/forge/home"),
+            std::path::Path::new("/usr/local/bin/soulsteads-forge"),
+            "root",
+            None,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn system_preview_uses_the_root_protected_system_unit_directory_without_systemd() {
+    let result = crate::service_unit::run_system(
+        "preview",
+        std::path::Path::new("/srv/forge/home"),
+        std::path::Path::new("/usr/local/bin/soulsteads-forge"),
+        crate::service_unit::SystemRequest {
+            name: None,
+            env_file: None,
+            run_as: "forge-service",
+            start: false,
+        },
+    )
+    .unwrap();
+    assert_eq!(result["unit"], "agent-forge.service");
+    assert_eq!(result["path"], "/etc/systemd/system/agent-forge.service");
+    assert!(
+        result["text"]
+            .as_str()
+            .unwrap()
+            .contains("User=forge-service\n")
+    );
 }
 
 #[tokio::test]

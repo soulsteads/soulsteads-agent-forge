@@ -9,11 +9,11 @@ Use Linux, Rust 1.97 or later (via rustup), a C compiler (`cc`, needed to build 
 From the root of a source checkout or extracted source archive:
 
 ```sh
-cargo install --locked --path .   # installs agent-forge into ~/.cargo/bin (add it to PATH)
+cargo install --locked --path .   # installs soulsteads-forge into ~/.cargo/bin (add it to PATH)
 export FORGE_HOME=./forge-home     # or pass --home; see Configuration below for the default
-agent-forge init
+soulsteads-forge init
 export FORGE_DATABASE_URL='postgresql://user@127.0.0.1:5432/forge'
-agent-forge serve --port 8110
+soulsteads-forge serve --port 8110
 ```
 
 The home defaults to `$XDG_DATA_HOME/forge` (`~/.local/share/forge` when `XDG_DATA_HOME` is unset), not `./forge-home`; there is no default database, and `serve`, `backup` and `restore` refuse to start without one. Set database credentials privately when required (for example in `~/.pgpass` or a private environment). The connection must specify its host, port, user, and database. Do not put credentials in a committed configuration or command history. `serve` runs in the foreground; stop it with Ctrl-C or SIGTERM. Restarting it with the same home and database resumes the same work, runs and schedules.
@@ -75,7 +75,7 @@ Behavior changes from earlier previews: the home default is no longer `./forge-h
 
 ## Harness-backed agent workloads
 
-A `harness` workload runs an agent in an operator-approved native harness (Codex CLI, Claude Code, OpenCode, Soulsteads) as a durable step: typed inputs in, output validated against a declared schema, results receipted and never re-run on replay. Runners are configured in `config.json` `runners` and selected by name only. See the [harness guide](harness.md) for capabilities and limits; `agent-forge runners list` shows profiles read-only.
+A `harness` workload runs an agent in an operator-approved native harness (Codex CLI, Claude Code, OpenCode, Soulsteads) as a durable step: typed inputs in, output validated against a declared schema, results receipted and never re-run on replay. Runners are configured in `config.json` `runners` and selected by name only. See the [harness guide](harness.md) for capabilities and limits; `soulsteads-forge runners list` shows profiles read-only.
 
 ## Operational CLI
 
@@ -84,31 +84,31 @@ Supply a scoped bearer token through `FORGE_TOKEN` in the caller's environment. 
 An agent with shell access can define, execute, inspect, and schedule work:
 
 ```sh
-agent-forge snapshot
+soulsteads-forge snapshot
 printf '%s\n' '{"type":"echo","input":{"text":"scheduled check"}}' |
-  agent-forge work register daily-check --definition -
-agent-forge work run daily-check --key first-check
+  soulsteads-forge work register daily-check --definition -
+soulsteads-forge work run daily-check --key first-check
 # Use the actual run_id returned above; inspect until terminal and verify output.
-agent-forge runs inspect RUN_ID
-agent-forge schedules create daily-check --work-id daily-check --cron '0 9 * * *' --tz America/Chicago
+soulsteads-forge runs inspect RUN_ID
+soulsteads-forge schedules create daily-check --work-id daily-check --cron '0 9 * * *' --tz America/Chicago
 # Returns the actor's schedule list; the new entry's canonical schedule_name
 # is actor-qualified, for example operator.daily-check.
-agent-forge schedules list
+soulsteads-forge schedules list
 # After a due time, read each occurrence's admitted run and output.
-agent-forge schedules occurrences CANONICAL_SCHEDULE_NAME
+soulsteads-forge schedules occurrences CANONICAL_SCHEDULE_NAME
 # Pause/delete a test schedule when finished.
-agent-forge schedules pause CANONICAL_SCHEDULE_NAME
+soulsteads-forge schedules pause CANONICAL_SCHEDULE_NAME
 ```
 
 Operators get readable output for multi-step workflows and their runs. These commands print text by default; add `--json` for the canonical API result (stable machine contract):
 
 ```sh
-agent-forge workflows validate --file report.json       # registration checks, nothing stored
-agent-forge workflows create report --file report.json
-agent-forge workflows show report
-agent-forge workflows run report --param task='new evidence' --wait
-agent-forge runs search --work report --status ERROR    # newest first; --before CURSOR pages
-agent-forge runs show RUN_ID                            # status, failed step + reason, per-step output, next actions
+soulsteads-forge workflows validate --file report.json       # registration checks, nothing stored
+soulsteads-forge workflows create report --file report.json
+soulsteads-forge workflows show report
+soulsteads-forge workflows run report --param task='new evidence' --wait
+soulsteads-forge runs search --work report --status ERROR    # newest first; --before CURSOR pages
+soulsteads-forge runs show RUN_ID                            # status, failed step + reason, per-step output, next actions
 ```
 
 `workflows run` prints the request key it used (generated when `--key` is omitted); reuse it with `--key` after a lost response. With `--wait` it exits nonzero unless the run ends `SUCCESS`. The older `work`, `runs list` and `runs inspect` commands keep printing raw JSON.
@@ -161,7 +161,7 @@ Reconciliation requires the literal `--settled` flag and operator authority. A c
 
 ## MCP and operating skill
 
-Configure a stdio MCP server with command `agent-forge`, arguments `["mcp", "--url", "http://127.0.0.1:8110"]`, and a privately supplied `FORGE_TOKEN`. `--token-env NAME` selects another variable. This Rust process forwards operations to the authenticated API; it opens no database and starts no executor. Mutation tools declare that they write state, so the harness's normal approval rules apply.
+Configure a stdio MCP server with command `soulsteads-forge`, arguments `["mcp", "--url", "http://127.0.0.1:8110"]`, and a privately supplied `FORGE_TOKEN`. `--token-env NAME` selects another variable. This Rust process forwards operations to the authenticated API; it opens no database and starts no executor. Mutation tools declare that they write state, so the harness's normal approval rules apply.
 
 Enable a native Streamable HTTP MCP endpoint by setting `server.mcp_http` to
 `true` in the private `config.json` and restarting Forge. Configure the
@@ -199,7 +199,7 @@ header. The native endpoint uses stateless MCP requests and accepts
 non-browser clients from the configured loopback Host or `localhost`.
 
 
-Copy `../skills/forge-operations` from this checkout into your harness's supported skills directory, or use `agent-forge skill` to print the embedded `SKILL.md` from an installed binary. `cargo install` installs the binary; it does not modify native harness configuration or install skills into an existing home. Follow the skill's registration, execution, scheduled-run observation, and failure diagnosis workflow. Home and other Soulsteads products are optional.
+Copy `../skills/forge-operations` from this checkout into your harness's supported skills directory, or use `soulsteads-forge skill` to print the embedded `SKILL.md` from an installed binary. `cargo install` installs the binary; it does not modify native harness configuration or install skills into an existing home. Follow the skill's registration, execution, scheduled-run observation, and failure diagnosis workflow. Home and other Soulsteads products are optional.
 
 The API is `POST /api` with bearer authentication and JSON `{"method":"snapshot","params":{}}`. The dashboard, operational CLI and MCP use that same contract. The MCP tools are `forge_overview`, `forge_agents`, `forge_run_logs`, `forge_schedule_stats`, `forge_approvals`, `forge_approve`, `forge_reject`, `forge_skills`, `forge_skill_show`, `forge_settings`, `forge_settings_set`, `forge_providers`, `forge_provider_set`, `forge_provider_remove`, `forge_backups`, `forge_backup_start`, `forge_snapshot`, `forge_work`, `forge_validate`, `forge_runs`, `forge_register`, `forge_enable`, `forge_run`, `forge_inspect`, `forge_schedule`, `forge_schedule_action`, `forge_schedule_occurrences`, `forge_schedule_show`, `forge_schedule_preview`, `forge_schedule_trigger`, `forge_queues`, `forge_cancel`, `forge_retry`, and `forge_reconcile`.
 
@@ -209,7 +209,7 @@ Core work types are `echo`, controlled `fail`, `model`, `workflow`, and `agent`.
 
 Cron expressions accept **five fields, minutes first**, or **six fields, seconds first**, with an explicit IANA time zone. Five-field input is normalized to a leading zero-second field before native scheduling. DBOS owns the schedule: it fires each due tick on the zone's wall clock (DST-aware) and Forge admits exactly one run per tick under a deterministic identity. Schedules do not automatically backfill missed occurrences: ticks missed while paused or while no service runs are skipped, and resuming fires from the next tick. A schedule's *work* is fixed once created. Its cron, zone, params, enabled state and tags are edited in place with `schedules edit` (see below); re-creating an existing name with different intent is still rejected. To change the work, create a replacement under a new name, then pause or delete the original (the dashboard's *Create replacement* pre-fills this). To run a saved schedule once outside its timing, use *Run once now* on its dashboard page, `schedules run NAME` or MCP `forge_schedule_trigger`. DBOS's native trigger enqueues one firing under a clock-derived `sched-NAME-trigger-TIME` ID, and Forge admits a new manual run for it with the schedule's frozen work and params. History marks it `kind: manual`, separate from `due` ticks. Because each call is a new run, nothing retries it: if a request fails or times out, check the schedule's history for a manual occurrence before running again. Manual and scheduled work share a native DBOS queue with two global execution slots. Scheduled dispatch admits the actual work and releases its slot without waiting on another queued workflow. The dashboard's *Operations* view shows definitions, schedules and their next occurrence, recent due occurrences with each admitted run's status and output, runs, steps, outputs, and failure evidence. Its *Schedules* view lists schedules with last fired and next due ticks, checks timing before creation, creates, pauses, resumes and deletes them, and shows each schedule's occurrence history: the native handoff status separately from the admitted run's own outcome, linked to that run. Its *Workflows* view builds, validates, creates and runs multi-step workflows; its *Runs* view searches runs by work and status and explains each run step by step (state, output, the failing step and its reason) with cancel and retry.
 
-**Queues.** DBOS owns Forge's queues, their limits and the order and time at which queued work starts. Every run, manual, retried or scheduled, executes on the home's *work* queue, which has two global slots shared by all actors. The *models* queue (two slots, one per provider partition) is registered but not used in this release: model calls run as checkpointed steps inside work-queue runs. DBOS also has an internal queue where Forge's submission maintenance runs. The dashboard's *Queues* view, `agent-forge queues status|show` and MCP `forge_queues` show the stored native limits; home-local running and waiting counts; and, for your own work only, what holds each slot (a run in a durable sleep keeps its slot) and why each waiting run waits. A waiting run shows `queue_capacity` when every slot is held, `native_delay` or `rate_limited` when DBOS recorded that hold, and `not_determined` otherwise. Other actors' work is counted but never identified. Forge does not report a queue position or start estimate, because DBOS does not expose one. Counts come from a bounded read of native records: up to 500 nonterminal workflows per queue, oldest first. If the read is incomplete, counts are lower bounds. Free slots and saturation are then `null` (unknown) unless the observed running count already reaches the limit. `members_listing` reports whether your listed running and waiting work is complete, overall and per state. When the native read or the `limit` (1–100, default 50) leaves some out, the views do not claim you have no work there; use Runs to find it. Recent results are a sample: of the newest 100 finished workflows on the work queue (all actors), at most 10 of yours are shown. `recent_window.complete` is false when older results of yours may exist, or when `recent_window.unavailable` of your finished runs could not be read for display; find them in Runs. The dashboard's Waiting list covers waiting and delayed work, and it says none only when both are complete. Cancelling a run before DBOS dequeues it means it never starts. The view does not change limits, priorities or order.
+**Queues.** DBOS owns Forge's queues, their limits and the order and time at which queued work starts. Every run, manual, retried or scheduled, executes on the home's *work* queue, which has two global slots shared by all actors. The *models* queue (two slots, one per provider partition) is registered but not used in this release: model calls run as checkpointed steps inside work-queue runs. DBOS also has an internal queue where Forge's submission maintenance runs. The dashboard's *Queues* view, `soulsteads-forge queues status|show` and MCP `forge_queues` show the stored native limits; home-local running and waiting counts; and, for your own work only, what holds each slot (a run in a durable sleep keeps its slot) and why each waiting run waits. A waiting run shows `queue_capacity` when every slot is held, `native_delay` or `rate_limited` when DBOS recorded that hold, and `not_determined` otherwise. Other actors' work is counted but never identified. Forge does not report a queue position or start estimate, because DBOS does not expose one. Counts come from a bounded read of native records: up to 500 nonterminal workflows per queue, oldest first. If the read is incomplete, counts are lower bounds. Free slots and saturation are then `null` (unknown) unless the observed running count already reaches the limit. `members_listing` reports whether your listed running and waiting work is complete, overall and per state. When the native read or the `limit` (1–100, default 50) leaves some out, the views do not claim you have no work there; use Runs to find it. Recent results are a sample: of the newest 100 finished workflows on the work queue (all actors), at most 10 of yours are shown. `recent_window.complete` is false when older results of yours may exist, or when `recent_window.unavailable` of your finished runs could not be read for display; find them in Runs. The dashboard's Waiting list covers waiting and delayed work, and it says none only when both are complete. Cancelling a run before DBOS dequeues it means it never starts. The view does not change limits, priorities or order.
 
 Forge's private SQLite store holds immutable admissions, ownership, reconciliation evidence, and effect receipts. PostgreSQL holds DBOS execution state. DBOS provides durable execution, step checkpoints and recovery, native schedules and queues, and the workflow/step records behind run inspection. Forge adds actor permissions, immutable admission, authored-workflow interpretation, and external-effect receipts and fences; DBOS checkpoints alone do not make external effects exactly-once. DBOS Rust 0.6.0 provides only a PostgreSQL system database, so PostgreSQL is required today; a SQLite default for durable state is a requested future option and is not implemented. Stored model/plugin outputs have integrity-checked receipts. `SUCCESS` means the workflow completed; `model.expect` is only a substring assertion, not a general assessment of task quality.
 
@@ -246,7 +246,7 @@ Sizing: set `dbos.work_concurrency` (`settings set dbos.work_concurrency 8`, res
 
 ## Doctor
 
-`agent-forge doctor [--json] [--offline]` is **read-only**: it never writes a row or a file, never starts a workflow and never repairs anything. With the service running it asks the service (API/MCP `doctor`, and the **Run doctor** button in the Overview) and checks: config validity (`config.json` on disk versus what the service runs), settings and their sources, PostgreSQL reachability and the DBOS schema, `psql`/`pg_dump`/`pg_restore` on `PATH`, an uncached probe of every runner profile, plugin release integrity (digests and configured executables), validation of **every work definition** against current authority and configuration, every schedule against its admitted definition, **lost runs** (an admission with no native workflow), **orphan workflows** (a native workflow with no admission), runs waiting in `RECOVERY_REQUIRED`, and authority gaps for newer operations. With the service stopped (or `--offline`) it runs the subset that needs only the home and the database (config, settings, database, schema, runners, plugins, lost runs, authority) and reports definitions as skipped. A home whose config does not load fails at the first check and names the field. The exit status is 1 when any check fails; `warn` does not fail.
+`soulsteads-forge doctor [--json] [--offline]` is **read-only**: it never writes a row or a file, never starts a workflow and never repairs anything. With the service running it asks the service (API/MCP `doctor`, and the **Run doctor** button in the Overview) and checks: config validity (`config.json` on disk versus what the service runs), settings and their sources, PostgreSQL reachability and the DBOS schema, `psql`/`pg_dump`/`pg_restore` on `PATH`, an uncached probe of every runner profile, plugin release integrity (digests and configured executables), validation of **every work definition** against current authority and configuration, every schedule against its admitted definition, **lost runs** (an admission with no native workflow), **orphan workflows** (a native workflow with no admission), runs waiting in `RECOVERY_REQUIRED`, and authority gaps for newer operations. With the service stopped (or `--offline`) it runs the subset that needs only the home and the database (config, settings, database, schema, runners, plugins, lost runs, authority) and reports definitions as skipped. A home whose config does not load fails at the first check and names the field. The exit status is 1 when any check fails; `warn` does not fail.
 
 A home upgraded from before the approval/configure/transfer milestone has operator actors without the `approve`, `configure` and `transfer` capabilities and the `approval` work type. Doctor prints the exact change for each such actor (never a token); the operator merges it into `config.json` while the service is stopped, then restarts:
 
@@ -258,10 +258,40 @@ A home upgraded from before the approval/configure/transfer milestone has operat
 
 ## Runner probes, definitions transfer and the service unit
 
-* `agent-forge runners test NAME` (API/MCP `runner_test`, the **Test** button in Providers) probes one runner profile now, bypassing the 30-second listing cache: the executable, the sandbox launcher (Pi), the harness version, and whether each passed-through environment variable is set (names only). It runs the harness with `--version` only: it sends no prompt and uses no model.
-* `agent-forge definitions export [--output FILE]` and `definitions import FILE [--replace] [--dry-run]` (API/MCP `definitions_export`/`definitions_import`, the Transfer view) move your work and schedule definitions as one JSON document (plugin-owned ones are excluded). Import validates **everything first** with your authority (the same checks as `work register` and `schedules create`) and refuses the whole document on any problem, listing each; it is idempotent (re-importing changes nothing); an existing identity with a different definition is a collision, refused unless `--replace`, which replaces work only if it has no unsettled run and edits a schedule in place (a schedule's work is never changed). Replacing work makes old failed runs of it non-retryable (their admitted definition no longer matches).
-* `agent-forge service preview|install|uninstall|status [--name NAME] [--env-file FILE] [--start]` (API/MCP `service`, the Settings panel) generates a **systemd `--user` unit** from the resolved settings: the binary that ran the command, `--home`, and the resolved listener host and port. The unit never contains the database credential. When the database comes from `FORGE_DATABASE_URL` or `database.url_env`, `--env-file` must name a private (0600) file that defines that variable; the unit refers to it with `EnvironmentFile=` (names are checked, values are never read out). A literal `database.url` in the private `config.json` needs no env file. An existing unit with different content is never overwritten; uninstall removes only a unit carrying this tool's marker **and** this home. Without `systemd --user`, `preview` still prints the unit text. Start/stop/restart are `systemctl --user`'s job.
+* `soulsteads-forge runners test NAME` (API/MCP `runner_test`, the **Test** button in Providers) probes one runner profile now, bypassing the 30-second listing cache: the executable, the sandbox launcher (Pi), the harness version, and whether each passed-through environment variable is set (names only). It runs the harness with `--version` only: it sends no prompt and uses no model.
+* `soulsteads-forge definitions export [--output FILE]` and `definitions import FILE [--replace] [--dry-run]` (API/MCP `definitions_export`/`definitions_import`, the Transfer view) move your work and schedule definitions as one JSON document (plugin-owned ones are excluded). Import validates **everything first** with your authority (the same checks as `work register` and `schedules create`) and refuses the whole document on any problem, listing each; it is idempotent (re-importing changes nothing); an existing identity with a different definition is a collision, refused unless `--replace`, which replaces work only if it has no unsettled run and edits a schedule in place (a schedule's work is never changed). Replacing work makes old failed runs of it non-retryable (their admitted definition no longer matches).
+* `soulsteads-forge service preview|install|uninstall|status [--name NAME] [--env-file FILE] [--start]` (API/MCP `service`, the Settings panel) generates a **systemd `--user` unit** from the resolved settings: the binary that ran the command, `--home`, and the resolved listener host and port. The unit never contains the database credential. When the database comes from `FORGE_DATABASE_URL` or `database.url_env`, `--env-file` must name a private (0600) file that defines that variable; the unit refers to it with `EnvironmentFile=` (names are checked, values are never read out). A literal `database.url` in the private `config.json` needs no env file. An existing unit with different content is never overwritten; uninstall removes only a unit carrying this tool's marker **and** this home. Without `systemd --user`, `preview` still prints the unit text. Start/stop/restart are `systemctl --user`'s job.
 
-## Authority errors and `agent-forge doctor`
+### Install a system service (Linux)
 
-A refusal reads `operation outside actor authority: actor NAME lacks capability `X`` or `lacks work type `T``, and points at `agent-forge doctor` for the exact `config.json` change. Capabilities and types are edited only by the operator in `config.json`, followed by a restart; no operation grants authority.
+Install `soulsteads-forge` under a root-owned path, such as `/usr/local/bin`.
+Create a dedicated non-root account and initialize a private Forge home as
+that account. The system unit runs with the permissions of that account;
+Forge reads the home and resolves its listener and database settings at startup.
+It does not copy the installer shell's environment. If the database URL is
+provided through the environment, put it in a root-owned, mode-0600 file in a
+root-owned directory and pass `--env-file /etc/forge/db.env` to both commands.
+
+```sh
+/usr/local/bin/soulsteads-forge --home /srv/forge/home service preview --system --run-as forge
+sudo /usr/local/bin/soulsteads-forge --home /srv/forge/home service install --system --run-as forge
+```
+
+The installer writes the fixed `/etc/systemd/system/agent-forge.service`
+unit (`--name` is only for user units), but does not reload systemd, enable
+the unit, or start it. Once you have inspected the unit
+and confirmed no other Forge instance is using that home or database, run
+`sudo systemctl daemon-reload` and `sudo systemctl enable --now agent-forge.service`.
+Manage system units with `systemctl`; the CLI's `service status` and
+`service uninstall` still operate on user units only.
+
+**Upgrading an existing user unit:** the default unit name and Forge home do
+not change. Before retiring the old executable, schedule a stop, save the
+existing unit and drop-ins, and preview the new `ExecStart`. Update the
+existing unit to use the new executable while preserving its settings and
+drop-ins, then reload and start it. The installer does not overwrite a
+different unit or migrate it between systemd managers.
+
+## Authority errors and `soulsteads-forge doctor`
+
+A refusal reads `operation outside actor authority: actor NAME lacks capability `X`` or `lacks work type `T``, and points at `soulsteads-forge doctor` for the exact `config.json` change. Capabilities and types are edited only by the operator in `config.json`, followed by a restart; no operation grants authority.

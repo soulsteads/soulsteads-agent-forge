@@ -49,7 +49,7 @@ impl Core {
                     "dump_bytes": std::fs::metadata(path.join("database.dump")).map(|m| m.len()).ok(),
                     "postgres_major": manifest.as_ref().map(|m| m["postgres_major"].clone()),
                     "home_id": manifest.as_ref().map(|m| m["home_id"].clone()),
-                    "restore": format!("agent-forge --home NEW_HOME restore {}", path.to_string_lossy()),
+                    "restore": format!("soulsteads-forge --home NEW_HOME restore {}", path.to_string_lossy()),
                 }));
             }
         }
@@ -59,7 +59,7 @@ impl Core {
             "directory": dir.to_string_lossy(),
             "archives": archives,
             "latest_job": job,
-            "restore_instruction": "Restore is CLI-only and destructive: stop the service, point FORGE_DATABASE_URL (or --database-url) at an EMPTY PostgreSQL database, then run `agent-forge --home NEW_HOME restore ARCHIVE_PATH` into a NEW home directory. Never restore over a running or populated home.",
+            "restore_instruction": "Restore is CLI-only and destructive: stop the service, point FORGE_DATABASE_URL (or --database-url) at an EMPTY PostgreSQL database, then run `soulsteads-forge --home NEW_HOME restore ARCHIVE_PATH` into a NEW home directory. Never restore over a running or populated home.",
         }))
     }
 

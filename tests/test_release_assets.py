@@ -103,6 +103,12 @@ class ReleaseAssetsTests(unittest.TestCase):
 
 @unittest.skipUnless(WORKFLOW.is_file(), 'requires the source checkout release workflow')
 class ReleasePackagingTests(unittest.TestCase):
+    def test_build_and_smoke_use_the_renamed_executable(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn('--bin soulsteads-forge\n', workflow)
+        self.assertIn('/release/soulsteads-forge" "$RUNNER_TEMP/$bundle/soulsteads-forge"', workflow)
+        self.assertIn('"$RUNNER_TEMP/$bundle/soulsteads-forge" --help', workflow)
+
     def test_pr_package_job_is_not_path_filtered(self):
         trigger = WORKFLOW.read_text().split('\non:\n', 1)[1].split('\npermissions:\n', 1)[0]
         self.assertRegex(trigger, r'(?m)^  pull_request:$(?!\n(?:[ \t]*\n)* {4}\S)')

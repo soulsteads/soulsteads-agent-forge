@@ -563,7 +563,7 @@ fn member_listing(
         .collect::<serde_json::Map<_, _>>();
     let mut notes = Vec::new();
     if !scan_complete {
-        notes.push(format!("The native scan read only the oldest {MEMBER_SCAN_MAX} nonterminal workflows on this queue, so work of yours created later is not visible here: an empty or short list does not mean you have none. Find it in Runs (agent-forge runs search --status ENQUEUED, or PENDING)."));
+        notes.push(format!("The native scan read only the oldest {MEMBER_SCAN_MAX} nonterminal workflows on this queue, so work of yours created later is not visible here: an empty or short list does not mean you have none. Find it in Runs (soulsteads-forge runs search --status ENQUEUED, or PENDING)."));
     }
     if omitted > 0 {
         notes.push(format!(
@@ -604,7 +604,7 @@ fn recent_window(
         if !examined_all || reached_shown_limit {
             parts.push(format!("Sampled: only the newest {RECENT_SCAN} finished workflows on this queue (all actors) are examined and at most {RECENT_SHOWN} of yours shown, so older results of yours may exist."));
         }
-        parts.push("See Runs (agent-forge runs search) for full history.".to_owned());
+        parts.push("See Runs (soulsteads-forge runs search) for full history.".to_owned());
         parts.join(" ")
     };
     json!({

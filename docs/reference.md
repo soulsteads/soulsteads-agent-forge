@@ -6,6 +6,6 @@ The extraction comprises the native DBOS runtime/configuration, admission/submis
 
 The reference's legacy workflow controller, scheduler/reducer, bundled plugin packages, memory package, and worker engine are not part of this product. DBOS Rust 0.6.0 is the sole execution and scheduling owner. SQLite admission and receipt records do not constitute a parallel execution lifecycle.
 
-The application builds as the `agent-forge` Rust executable. Test clients and fixtures are separate from the installed runtime.
+The application builds as the `soulsteads-forge` Rust executable. Test clients and fixtures are separate from the installed runtime.
 
 The upstream native DBOS SDK is designated pre-production. This repository's bounded MVP qualification is evidence for the exercised scenarios and explicitly configured backends, not a claim of general production readiness or qualification of the entire reference implementation.

@@ -47,13 +47,13 @@ Public names are namespaced so plugins cannot collide with core or each other: w
 ## Lifecycle
 
 ```text
-agent-forge plugins check DIR         validate without installing (dry run)
-agent-forge plugins install DIR       stage, verify, publish; installed DISABLED
-agent-forge plugins enable ID         verify again, describe, materialize jobs/workflows
-agent-forge plugins disable ID        refused with active runs or in-flight calls
-agent-forge plugins uninstall ID      refused while enabled or referenced
-agent-forge plugins installed [--json]   lifecycle state; plugins show ID [--check]
-agent-forge plugins run ID COMMAND... run a declared CLI command through the service
+soulsteads-forge plugins check DIR         validate without installing (dry run)
+soulsteads-forge plugins install DIR       stage, verify, publish; installed DISABLED
+soulsteads-forge plugins enable ID         verify again, describe, materialize jobs/workflows
+soulsteads-forge plugins disable ID        refused with active runs or in-flight calls
+soulsteads-forge plugins uninstall ID      refused while enabled or referenced
+soulsteads-forge plugins installed [--json]   lifecycle state; plugins show ID [--check]
+soulsteads-forge plugins run ID COMMAND... run a declared CLI command through the service
 ```
 
 All lifecycle commands go through the authenticated service API (`plugin_*` operations, token auth and audit) and need the new actor capability **`plugins`** (new homes grant it to `operator`; existing homes add it to the actor's `capabilities` while the service is stopped). Running a plugin's work additionally needs the usual `execute` capability **and** the plugin's work type `plugin.<id>` in the actor's `types`; Forge never grants a plugin's type implicitly.
@@ -93,7 +93,7 @@ One JSON request on stdin, one JSON reply on stdout; the process is started per 
 
 * **CLI:** `plugins run ID COMMAND...` sends the command to the service, which runs only a manifest-declared command path (longest declared prefix; everything after is data passed to the plugin, hyphens included). The plugin's `exit_code` becomes the process exit status. A disabled plugin returns its declared denial (default status 3).
 * **HTTP API:** `/api/plugins/<id>/<route>` uses exactly the same bearer authentication as `/api` (missing or unknown credentials: 403 `{"error":...}`). Only declared methods and paths: 404 for an undeclared route, 405 for a declared path with another method. The actor needs the route's `capability` and the plugin's type. The body is bounded by `max_body_bytes` (413) and must be JSON (400). Responses carry `X-Content-Type-Options: nosniff` and default `Cache-Control: no-store`.
-* **MCP:** `agent-forge mcp` lists enabled plugin tools (for actors that may execute the plugin's type) on every `tools/list`, as `plugin_<id>__<tool>`; calls are forwarded to the service, which re-checks enablement and authority and validates the arguments. The list can change while the bridge runs; clients re-list (no `list_changed` notification is sent).
+* **MCP:** `soulsteads-forge mcp` lists enabled plugin tools (for actors that may execute the plugin's type) on every `tools/list`, as `plugin_<id>__<tool>`; calls are forwarded to the service, which re-checks enablement and authority and validates the arguments. The list can change while the bridge runs; clients re-list (no `list_changed` notification is sent).
 * **Dashboard:** enabled plugins' routes appear in the nav and load at `#/x/<id>/<path>`. The server serves the declared assets at `/plugins/<id>/assets/<resource path>` only for enabled plugins, **reading the release bytes and re-checking their digest on every request**, with a correct content type (`js`, `mjs`, `css`, `json`, `svg`, `png`, `txt`, `woff2` only), `nosniff` and `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. Assets need no bearer token (a module is loaded by `import()`, which cannot send one), so they must contain no secrets. The page loads the module with `import()` and calls its exported `mount(el, host)` (or default export); a returned function is called on navigation away. The **host API** is a frozen object with `pluginId`, `route`, `mount` (the element), `fetch(subpath, init)` (adds the dashboard's bearer token and reaches only this plugin's own `/api/plugins/<id>/` routes) and `setStatus(text)`. The Plugins view lists installed plugins with Enable, Disable and Verify (a minimal management UI; the complete one is later work).
 * **Jobs and workflows:** appear in `work list`, the dashboard and MCP like any other work, run with `work run` / schedules / manual triggers, and are inspected with the usual run views.
 

@@ -1,4 +1,4 @@
-//! Read-only catalog of the skills compiled into this build (what `agent-forge skill`
+//! Read-only catalog of the skills compiled into this build (what `soulsteads-forge skill`
 //! prints, listed by name). There is no install or edit lifecycle: skills are part of
 //! the release, and Skillstore owns distribution.
 use crate::core::{Core, Denied, hash};
@@ -20,7 +20,7 @@ fn frontmatter(text: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// The embedded operating skill, as printed by `agent-forge skill`.
+/// The embedded operating skill, as printed by `soulsteads-forge skill`.
 pub fn operating_skill() -> &'static str {
     SKILLS[0].1
 }

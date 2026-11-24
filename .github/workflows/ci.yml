@@ -29,7 +29,7 @@ jobs:
             printf 'CARGO_HOME=%s/forge-cargo\n' "$RUNNER_TEMP"
             printf 'CARGO_TARGET_DIR=%s/forge-target\n' "$RUNNER_TEMP"
             printf 'FORGE_TEST_STATE=%s/forge-smoke\n' "$RUNNER_TEMP"
-            printf 'FORGE_BINARY=%s/forge-install/bin/agent-forge\n' "$RUNNER_TEMP"
+            printf 'FORGE_BINARY=%s/forge-install/bin/soulsteads-forge\n' "$RUNNER_TEMP"
             printf 'TMPDIR=%s\n' "$RUNNER_TEMP"
           } >> "$GITHUB_ENV"
       - name: Offline publication safety

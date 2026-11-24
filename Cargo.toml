@@ -1,6 +1,6 @@
 [package]
 name = "soulsteads-agent-forge"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
@@ -24,7 +24,7 @@ include = [
 name = "agent_forge"
 
 [[bin]]
-name = "agent-forge"
+name = "soulsteads-forge"
 path = "src/main.rs"
 
 [dependencies]

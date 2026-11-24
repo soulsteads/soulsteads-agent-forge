@@ -10,9 +10,9 @@ In the dashboard, open **Transfer → Work and schedule definitions**, choose th
 Run the no-model example from the source checkout:
 
 ```sh
-agent-forge definitions import examples/release-readiness/import.json --dry-run
-agent-forge definitions import examples/release-readiness/import.json
-agent-forge workflows run release-readiness --key readiness-demo-1 --wait
+soulsteads-forge definitions import examples/release-readiness/import.json --dry-run
+soulsteads-forge definitions import examples/release-readiness/import.json
+soulsteads-forge workflows run release-readiness --key readiness-demo-1 --wait
 ```
 
 The `report` output is `Observed: example checklist ready`. Reuse the same key and parameters after an uncertain submission; use a new key for a genuinely new invocation. Open **Workflows** or **Runs** in the dashboard to inspect the saved definition and step evidence.

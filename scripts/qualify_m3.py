@@ -189,7 +189,7 @@ class Live:
         if token is not None:
             env['FORGE_TOKEN'] = token
         r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300, input=stdin)
-        self.commands.append(f'agent-forge {" ".join(map(str, args))}\n  -> rc={r.returncode}\n  stdout: {r.stdout.strip()[:500]}\n  stderr: {r.stderr.strip()[:300]}')
+        self.commands.append(f'soulsteads-forge {" ".join(map(str, args))}\n  -> rc={r.returncode}\n  stdout: {r.stdout.strip()[:500]}\n  stderr: {r.stderr.strip()[:300]}')
         return r.returncode, r.stdout, r.stderr
 
     def cli_json(self, *args, stdin=None):
@@ -1056,7 +1056,7 @@ class Live:
         skills_cli = self.cli_json('skills', 'list')
         skills_mcp = self.mcp('skills')
         shown = self.page.inner_text('#sk-content')
-        self.check('skills catalog (read-only): list and show in UI, CLI and MCP agree with `agent-forge skill`',
+        self.check('skills catalog (read-only): list and show in UI, CLI and MCP agree with `soulsteads-forge skill`',
                    skills_cli == skills_mcp and 'forge-operations' in shown and shown.split('\n', 1)[1].strip()[:40] in self.cli('skill')[1], self.shot('skills'), skills_cli['skills'][0]['name'])
         errors = [(v, m) for v, m in self.console]
         self.save('console-errors.json', errors)

@@ -212,7 +212,7 @@ F.onConnect.push(async (s) => { snapshot = s; renderPluginNav(); if (parseHash()
 // ------------------------------------------------------------------ plugins
 // Minimal lifecycle management; the complete plugin UI belongs to a later milestone.
 function installedTable(list) {
-  if (!list.length) return h("p", { class: "empty", id: "pl-installed-empty", text: "No plugins installed. Install one with `agent-forge plugins install DIR`; installs start disabled." });
+  if (!list.length) return h("p", { class: "empty", id: "pl-installed-empty", text: "No plugins installed. Install one with `soulsteads-forge plugins install DIR`; installs start disabled." });
   const act = (label, fn) => h("button", { type: "button", text: label, onclick: () => guarded($("pl-alert"), async () => { await fn(); await pluginView(); }) });
   return h("table", { id: "pl-installed" },
     h("thead", {}, h("tr", {}, h("th", { text: "Plugin" }), h("th", { text: "Version" }), h("th", { text: "State" }), h("th", { text: "Health" }), h("th", { text: "Actions" }))),
@@ -775,7 +775,7 @@ function failureBanner(f, runId) {
     (f.unverified_refusals || []).length ? h("ul", {}, f.unverified_refusals.map((d) => h("li", { text: "Unverified refusal (not located): " + d }))) : "",
     h("p", { class: "hint", text: "See “Native step checkpoints” and “Audit log” below." }));
   return h("div", { class: "alert error", id: "run-failure", role: "alert" }, h("strong", { text: "Failed at step " + (f.step || "(workflow)") + ": " }), f.reason,
-    f.contradicted ? h("p", { class: "hint", text: "Other native evidence conflicts with this stop; see “Native step checkpoints” and “Audit log” below, or agent-forge runs show " + runId + " --json." }) : "");
+    f.contradicted ? h("p", { class: "hint", text: "Other native evidence conflicts with this stop; see “Native step checkpoints” and “Audit log” below, or soulsteads-forge runs show " + runId + " --json." }) : "");
 }
 function stepOutput(runId, s) {
   if ((s.output === null || s.output === undefined) && s.note) return h("span", { class: "hint", text: s.note });
@@ -1028,7 +1028,7 @@ async function scheduleDetail(name, notice) {
     s.pending_edit ? h("div", { class: "alert warn", id: "sc-pending-edit", role: "status" },
       s.pending_edit.native_present
         ? ["Use the pending cron, time zone and parameters from Canonical JSON with ",
-          h("code", { text: "agent-forge schedules edit" }), " or ", h("code", { text: "forge_schedule_update" }),
+          h("code", { text: "soulsteads-forge schedules edit" }), " or ", h("code", { text: "forge_schedule_update" }),
           ". Use --clear-params or null to clear parameters. Omit enabled and tags. The current pause state is preserved."]
         : "The native schedule is missing. Resubmission requires the original native schedule. To schedule future work, use a different name.") : "",
     diag,
