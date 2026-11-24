@@ -1,0 +1,51 @@
+{
+  "agent-client-protocol-schema-1.11.0": {
+    "commit": "4cf3dd858c819fc3ab99ae53f76883ede0345a10",
+    "file": "agent-client-protocol.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/agentclientprotocol/agent-client-protocol",
+    "sha256": "f250d08cee4549b22b3b4aaaf3a743473336fd280316df5d0340717e5127a221"
+  },
+  "dbos-0.6.0": {
+    "commit": "d4bdb1a6024b79f86f298c023a8b490bb1e0515b",
+    "file": "dbos.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/dbos-inc/dbos-transact-rust",
+    "sha256": "5bac832f76bf79ed5eaa3532a69a5a82a1b0b6e01ae0cccf53d39ad932be8857"
+  },
+  "dbos-macros-0.6.0": {
+    "commit": "d4bdb1a6024b79f86f298c023a8b490bb1e0515b",
+    "file": "dbos.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/dbos-inc/dbos-transact-rust",
+    "sha256": "5bac832f76bf79ed5eaa3532a69a5a82a1b0b6e01ae0cccf53d39ad932be8857"
+  },
+  "jsonschema-regex-0.61.2": {
+    "commit": "0e82636fde8b2afb5e712ede6c261166ea10fc17",
+    "file": "jsonschema.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/Stranger6667/jsonschema",
+    "sha256": "117829c3ca21efb132d81a44b55363d395ab8eea18526873bc828da4c0e5f038"
+  },
+  "jsonschema-value-0.61.2": {
+    "commit": "0e82636fde8b2afb5e712ede6c261166ea10fc17",
+    "file": "jsonschema.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/Stranger6667/jsonschema",
+    "sha256": "117829c3ca21efb132d81a44b55363d395ab8eea18526873bc828da4c0e5f038"
+  },
+  "uuid-simd-0.8.0": {
+    "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+    "file": "simd.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/Nugine/simd",
+    "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+  },
+  "vsimd-0.8.0": {
+    "commit": "d74c030d9dc4f3cae02146d1f497ff62726ef09a",
+    "file": "simd.LICENSE",
+    "member": "LICENSE",
+    "repository": "https://github.com/Nugine/simd",
+    "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+  }
+}
