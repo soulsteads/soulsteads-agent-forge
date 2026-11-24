@@ -147,5 +147,6 @@ tests/safety.rs
 tests/test_acp_qualification.py
 tests/test_export_source.py
 tests/test_publication_checks.py
+tests/test_release_assets.py
 tests/test_workflow_examples.py
 tests/workflow_credentials.rs
