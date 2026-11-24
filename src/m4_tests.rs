@@ -301,7 +301,7 @@ async fn authority_errors_name_the_missing_capability_or_type_and_point_to_docto
     assert!(
         text.contains("outside actor authority")
             && text.contains("capability `register`")
-            && text.contains("agent-forge doctor"),
+            && text.contains("soulsteads-forge doctor"),
         "{text}"
     );
     let text = core

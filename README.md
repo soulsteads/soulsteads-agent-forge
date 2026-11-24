@@ -36,6 +36,8 @@ Use Forge when a job needs to run repeatedly and you want more than a scheduler 
 ## Quick start
 
 Prefer Docker or Podman? See the [container deployment guide](docs/containers.md).
+For systemd setup or migration from `agent-forge`, see the
+[service installation guide](docs/operations.md#runner-probes-definitions-transfer-and-the-service-unit).
 
 You need **Rust 1.97 or later**, a **C compiler**, an **empty, dedicated PostgreSQL database**, and `jq` for the token command below. See the [tested setup](docs/support.md#tested-preview-path) for what has been exercised.
 
@@ -46,13 +48,13 @@ From the root of this checkout, with the Cargo bin directory on your `PATH`:
 ```sh
 cargo install --locked --path . -j 1
 export FORGE_HOME="$HOME/.local/share/agent-forge-example"
-agent-forge init
+soulsteads-forge init
 ```
 
 Set `FORGE_DATABASE_URL` privately to the connection URL for your dedicated database. Then start Forge in the foreground:
 
 ```sh
-agent-forge serve --port 8110
+soulsteads-forge serve --port 8110
 ```
 
 Open <http://127.0.0.1:8110> and sign in with the operator token at `actors.operator.token` in `$FORGE_HOME/config.json`. Keep that file private. To use the CLI, open a second terminal and load the same token without printing it:
@@ -67,12 +69,12 @@ FORGE_TOKEN=$(jq -er '.actors.operator.token' "$FORGE_HOME/config.json") && expo
 Use the included [release-readiness import bundle](examples/release-readiness/import.json). The first step echoes a parameter; the second reads that step's output and returns a report. From the root of the Git checkout or the unpacked Cargo source package, preview, import, and run it:
 
 ```sh
-agent-forge definitions import examples/release-readiness/import.json --dry-run
-agent-forge definitions import examples/release-readiness/import.json
-agent-forge workflows run release-readiness --key first-report --wait
+soulsteads-forge definitions import examples/release-readiness/import.json --dry-run
+soulsteads-forge definitions import examples/release-readiness/import.json
+soulsteads-forge workflows run release-readiness --key first-report --wait
 ```
 
-A successful run returns `Observed: example checklist ready`. Open **Runs** in the dashboard, or run `agent-forge runs show RUN_ID` with the ID returned by the CLI. If you lose the submission response, repeat the same command with the same request key and parameters instead of using a new key.
+A successful run returns `Observed: example checklist ready`. Open **Runs** in the dashboard, or run `soulsteads-forge runs show RUN_ID` with the ID returned by the CLI. If you lose the submission response, repeat the same command with the same request key and parameters instead of using a new key.
 
 See [runnable examples](examples/README.md) for more, including a [Rust PR reviewer](examples/rust-pr-review/README.md) with structured findings and a changed-line citation check.
 
@@ -81,11 +83,11 @@ See [runnable examples](examples/README.md) for more, including a [Rust PR revie
 This schedule runs `release-readiness` every day at 09:00 UTC:
 
 ```sh
-agent-forge schedules create daily-report --work-id release-readiness --cron '0 9 * * *' --tz UTC
-agent-forge schedules occurrences operator.daily-report
+soulsteads-forge schedules create daily-report --work-id release-readiness --cron '0 9 * * *' --tz UTC
+soulsteads-forge schedules occurrences operator.daily-report
 ```
 
-The history can be empty until the first due time. After that, follow the occurrence to its run and check the output; creating a schedule does not show that its work succeeded. Pause the example with `agent-forge schedules pause operator.daily-report`. Stop the foreground server with Ctrl-C; restart it with the same home and database to keep the definitions and history.
+The history can be empty until the first due time. After that, follow the occurrence to its run and check the output; creating a schedule does not show that its work succeeded. Pause the example with `soulsteads-forge schedules pause operator.daily-report`. Stop the foreground server with Ctrl-C; restart it with the same home and database to keep the definitions and history.
 
 ## How Forge works
 

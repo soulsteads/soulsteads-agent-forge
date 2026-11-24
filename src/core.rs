@@ -235,7 +235,7 @@ pub fn load_policy(home: &Path) -> Result<Policy> {
     }
     let bytes = safety::read_private(&settings::config_file(home)).map_err(|e| {
         settings::ConfigError(format!(
-            "config.json cannot be read as one private regular file owned by you ({}); run `agent-forge init` for a new home or restore its 0600 mode",
+            "config.json cannot be read as one private regular file owned by you ({}); run `soulsteads-forge init` for a new home or restore its 0600 mode",
             e.kind()
         ))
     })?;
@@ -391,7 +391,7 @@ impl Core {
             // The typed `Denied` stays the root cause (it maps to 403); the context is the
             // message clients see, naming exactly what is missing and where to look.
             return Err(anyhow::Error::new(Denied("operation outside actor authority")).context(format!(
-                "operation outside actor authority: actor {actor} lacks {missing}. Run `agent-forge doctor` for the exact config.json change (the operator edits the actor's capabilities/types and restarts)"
+                "operation outside actor authority: actor {actor} lacks {missing}. Run `soulsteads-forge doctor` for the exact config.json change (the operator edits the actor's capabilities/types and restarts)"
             )));
         }
         Ok(())
@@ -1616,7 +1616,7 @@ impl Core {
             .await
             .map_err(|_| {
                 Invalid(
-                    "The manual run request could not be confirmed. It may or may not have been enqueued. It was not retried. Check `agent-forge schedules history NAME` for a manual occurrence before running again.",
+                    "The manual run request could not be confirmed. It may or may not have been enqueued. It was not retried. Check `soulsteads-forge schedules history NAME` for a manual occurrence before running again.",
                 )
             })?;
         drop(edit);
@@ -1659,7 +1659,7 @@ impl Core {
             "note": if run_id.is_string() {
                 "A new manual run of this schedule's frozen work and params. It is not a due tick; the schedule's cron, status and last-fired tick are unchanged. Follow the run for its result."
             } else {
-                "The native manual trigger is enqueued, but its run was not admitted yet. Do not run again to hurry it: read `agent-forge schedules history NAME`, or this schedule's history, for this trigger_id."
+                "The native manual trigger is enqueued, but its run was not admitted yet. Do not run again to hurry it: read `soulsteads-forge schedules history NAME`, or this schedule's history, for this trigger_id."
             },
         }))
     }

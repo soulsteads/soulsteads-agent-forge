@@ -72,6 +72,8 @@ pub const DEFAULT_CGROUP_ROOT: &str = "/sys/fs/cgroup";
 // ---- systemd --user service (see service_unit.rs) -------------------------------
 const DEFAULT_CONFIG_FALLBACK: &str = ".config";
 const SYSTEMD_USER_SUBDIR: &str = "systemd/user";
+/// Standard root-owned directory for system-wide units. Only system service operations use it.
+pub const SYSTEMD_SYSTEM_DIR: &str = "/etc/systemd/system";
 /// Default unit name (without the `.service` suffix) when `--name` is not given.
 pub const SERVICE_DEFAULT_NAME: &str = "agent-forge";
 pub const SERVICE_SUFFIX: &str = ".service";

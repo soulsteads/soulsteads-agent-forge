@@ -11,7 +11,7 @@ import httpx
 
 state=Path(os.environ['FORGE_TEST_STATE']).resolve();state.mkdir(parents=True,exist_ok=False)
 binary=Path(os.environ['FORGE_BINARY']).resolve(strict=True);assert binary.read_bytes()[:4]==b'\x7fELF'
-pinned=state/'agent-forge';shutil.copy2(binary,pinned);binary=pinned
+pinned=state/'soulsteads-forge';shutil.copy2(binary,pinned);binary=pinned
 home=state/'home';port=os.environ.get('FORGE_TEST_PORT','19105');url='http://127.0.0.1:'+port
 metadata={'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'candidate':os.environ.get('FORGE_CANDIDATE_SHA'),'runtime':'native Rust ELF / DBOS PostgreSQL','test_driver_only':'Python'}
 (state/'artifact.json').write_text(json.dumps(metadata,indent=2)+'\n')

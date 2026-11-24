@@ -26,8 +26,8 @@ The report covers concrete regressions such as incorrect error handling, panics,
 In the dashboard, open **Transfer → Work and schedule definitions**, choose [`import.json`](import.json), leave replacement off, select **Validate (dry run)**, and then select **Import** if the preview is clean. Or use the CLI from the Agent Forge source root:
 
 ```sh
-agent-forge definitions import examples/rust-pr-review/import.json --dry-run
-agent-forge definitions import examples/rust-pr-review/import.json
+soulsteads-forge definitions import examples/rust-pr-review/import.json --dry-run
+soulsteads-forge definitions import examples/rust-pr-review/import.json
 ```
 
 This installs `rust-pr-review` without creating a schedule or starting a review. Re-importing the same definition is a no-op. A different existing definition with that ID is a collision; inspect it before replacing anything.
@@ -41,7 +41,7 @@ umask 077
 python3 examples/rust-pr-review/review_packet.py prepare \
   --repo "$REPO" --project "$PROJECT" --pr "$PR" \
   --base "$BASE_SHA" --head "$HEAD_SHA" > "$REVIEW_DIR/params.json"
-agent-forge workflows run rust-pr-review --params "$REVIEW_DIR/params.json" --key "$REVIEW_KEY" --wait
+soulsteads-forge workflows run rust-pr-review --params "$REVIEW_DIR/params.json" --key "$REVIEW_KEY" --wait
 ```
 
 Import the definition once. Set `REVIEW_KEY` to a unique identity for the intended review, such as `review-42-v1`; reuse it with the same parameters after an uncertain response. A new head or changed input requires a new request key. Check the command's exit status at every step; do not submit if preparation fails.
@@ -49,7 +49,7 @@ Import the definition once. Set `REVIEW_KEY` to a unique identity for the intend
 With the successful run's ID assigned to `RUN_ID`, read back the result and verify its citations:
 
 ```sh
-agent-forge runs show "$RUN_ID" --json > "$REVIEW_DIR/run.json"
+soulsteads-forge runs show "$RUN_ID" --json > "$REVIEW_DIR/run.json"
 python3 examples/rust-pr-review/review_packet.py verify \
   "$REVIEW_DIR/params.json" "$REVIEW_DIR/run.json"
 ```

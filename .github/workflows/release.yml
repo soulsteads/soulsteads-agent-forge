@@ -34,11 +34,11 @@ jobs:
           export CARGO_TARGET_DIR="$RUNNER_TEMP/release-target"
           export CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_PROFILE_RELEASE_STRIP=debuginfo
           # Ubuntu 24.04 GNU/Linux build; do not include dev/test executables.
-          cargo +1.100.0 build --release --locked --target x86_64-unknown-linux-gnu --bin agent-forge
-          install -m 0755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/agent-forge" "$RUNNER_TEMP/$bundle/agent-forge"
+          cargo +1.100.0 build --release --locked --target x86_64-unknown-linux-gnu --bin soulsteads-forge
+          install -m 0755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/soulsteads-forge" "$RUNNER_TEMP/$bundle/soulsteads-forge"
           install -m 0644 LICENSE NOTICE "$RUNNER_TEMP/$bundle/"
           install -m 0644 THIRD_PARTY_NOTICES.md "$RUNNER_TEMP/$bundle/"
-          "$RUNNER_TEMP/$bundle/agent-forge" --help > /dev/null
+          "$RUNNER_TEMP/$bundle/soulsteads-forge" --help > /dev/null
           cargo +1.100.0 metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu > "$RUNNER_TEMP/cargo-metadata.json"
           cargo +1.100.0 tree --color never --locked --target x86_64-unknown-linux-gnu \
             -e normal,build --prefix none --format '{p}' > "$RUNNER_TEMP/cargo-tree.txt"

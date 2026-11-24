@@ -220,7 +220,7 @@ pub(crate) fn render_run(run: &Value) -> String {
         if failure["contradicted"] == true {
             let _ = writeln!(
                 out,
-                "          Other native evidence conflicts with this stop; inspect with agent-forge runs show {} --json",
+                "          Other native evidence conflicts with this stop; inspect with soulsteads-forge runs show {} --json",
                 run["run_id"].as_str().unwrap_or("<run>")
             );
         }
@@ -311,14 +311,14 @@ pub(crate) fn render_run(run: &Value) -> String {
     let id = run["run_id"].as_str().unwrap_or("RUN_ID");
     let mut next = Vec::new();
     if run["actions"]["cancel"] == true {
-        next.push(format!("agent-forge runs cancel {id}"));
+        next.push(format!("soulsteads-forge runs cancel {id}"));
     }
     if run["actions"]["retry"] == true {
-        next.push(format!("agent-forge runs retry {id} --key NEW_KEY"));
+        next.push(format!("soulsteads-forge runs retry {id} --key NEW_KEY"));
     }
     if run["actions"]["reconcile"] == true {
         next.push(format!(
-            "agent-forge runs reconcile {id} --effect-id EFFECT --decision ... --note ... --settled"
+            "soulsteads-forge runs reconcile {id} --effect-id EFFECT --decision ... --note ... --settled"
         ));
     }
     if !next.is_empty() {
@@ -493,7 +493,7 @@ fn text_of(v: &Value) -> String {
 fn render_schedule_list(list: &Value) -> String {
     let items = list.as_array().map(Vec::as_slice).unwrap_or(&[]);
     if items.is_empty() {
-        return "No schedules. Create one with: agent-forge schedules create NAME --work-id ID --cron EXPR --tz ZONE\n".into();
+        return "No schedules. Create one with: soulsteads-forge schedules create NAME --work-id ID --cron EXPR --tz ZONE\n".into();
     }
     let rows: Vec<Vec<String>> = items
         .iter()
@@ -536,7 +536,7 @@ fn render_schedule_list(list: &Value) -> String {
         &rows,
     );
     out.push_str(
-        "\nMissed ticks are skipped (no catch-up). Details: agent-forge schedules show NAME\n",
+        "\nMissed ticks are skipped (no catch-up). Details: soulsteads-forge schedules show NAME\n",
     );
     out
 }
@@ -615,7 +615,7 @@ fn render_trigger(t: &Value) -> String {
         Some(run) => {
             let _ = writeln!(out, "Run      {run}");
             let _ = writeln!(out, "{}", text_of(&t["note"]));
-            let _ = writeln!(out, "Result: agent-forge runs show {run}");
+            let _ = writeln!(out, "Result: soulsteads-forge runs show {run}");
         }
         None => {
             let _ = writeln!(out, "Run      not admitted yet");
@@ -641,7 +641,7 @@ fn render_history(value: &Value) -> String {
         &["TIME", "KIND", "HANDOFF", "OUTCOME", "RUN", "RESULT"],
         &occurrence_rows(items),
     );
-    out.push_str("\nHANDOFF is the native DBOS firing that admits the run; OUTCOME is the admitted run's own result.\nInspect a run: agent-forge runs show RUN_ID\n");
+    out.push_str("\nHANDOFF is the native DBOS firing that admits the run; OUTCOME is the admitted run's own result.\nInspect a run: soulsteads-forge runs show RUN_ID\n");
     out
 }
 
@@ -713,17 +713,17 @@ fn render_schedule(s: &Value) -> String {
     let mut next = Vec::new();
     let name = text_of(&s["schedule_name"]);
     if a["pause"] == true {
-        next.push(format!("agent-forge schedules pause {name}"));
+        next.push(format!("soulsteads-forge schedules pause {name}"));
     }
     if a["resume"] == true {
-        next.push(format!("agent-forge schedules resume {name}"));
+        next.push(format!("soulsteads-forge schedules resume {name}"));
     }
     if a["delete"] == true {
-        next.push(format!("agent-forge schedules delete {name}"));
+        next.push(format!("soulsteads-forge schedules delete {name}"));
     }
     if a["edit"] == true {
         next.push(format!(
-            "agent-forge schedules edit {name} --cron EXPR --tz ZONE [--tag T]"
+            "soulsteads-forge schedules edit {name} --cron EXPR --tz ZONE [--tag T]"
         ));
     }
     let _ = writeln!(out, "\nRecent occurrences (newest first):");
@@ -743,7 +743,7 @@ fn render_schedule(s: &Value) -> String {
     for n in next {
         let _ = writeln!(out, "  {n}");
     }
-    let _ = writeln!(out, "  agent-forge runs show RUN_ID");
+    let _ = writeln!(out, "  soulsteads-forge runs show RUN_ID");
     let _ = writeln!(out, "Editing: {}", text_of(&s["replacement"]));
     out
 }
@@ -793,7 +793,7 @@ pub(crate) fn schedule_mutation_note(
                 }
             })?;
             Some(format!(
-                "Created {} [{}]: {} in {}; next due {}. Missed ticks are skipped. Watch: agent-forge schedules show {}",
+                "Created {} [{}]: {} in {}; next due {}. Missed ticks are skipped. Watch: soulsteads-forge schedules show {}",
                 text_of(&s["schedule_name"]),
                 text_of(&s["status"]),
                 text_of(&s["schedule"]),
@@ -832,7 +832,7 @@ pub(crate) fn schedule_mutation_note(
                         .unwrap_or_else(|| "-".into())
                 )),
                 "delete" => Some(format!(
-                    "Deleted {name}; already admitted runs continue and its history stays readable with: agent-forge schedules history {name}"
+                    "Deleted {name}; already admitted runs continue and its history stays readable with: soulsteads-forge schedules history {name}"
                 )),
                 _ => None,
             }
@@ -889,7 +889,7 @@ pub(crate) async fn schedules(
                 .await
                 .map_err(|e| {
                     fail(format!(
-                        "{e}\nNothing was retried. Running again always starts another run; first check: agent-forge schedules history {name}"
+                        "{e}\nNothing was retried. Running again always starts another run; first check: soulsteads-forge schedules history {name}"
                     ))
                 })?;
             print(json, &value, render_trigger)
@@ -1130,13 +1130,13 @@ fn render_queues(v: &Value) -> String {
     if has_members {
         let _ = writeln!(
             out,
-            "Next: agent-forge runs show RUN_ID  ·  agent-forge runs cancel RUN_ID (a waiting run cancelled before dequeue never starts)"
+            "Next: soulsteads-forge runs show RUN_ID  ·  soulsteads-forge runs cancel RUN_ID (a waiting run cancelled before dequeue never starts)"
         );
     }
     if !detail {
         let _ = writeln!(
             out,
-            "Details and recent results: agent-forge queues show work"
+            "Details and recent results: soulsteads-forge queues show work"
         );
     }
     out
@@ -1197,7 +1197,7 @@ pub(crate) async fn workflows(client: &ApiClient, command: Workflows) -> anyhow:
                     })
                     .collect();
                 if rows.is_empty() {
-                    "No workflows. Create one with: agent-forge workflows create ID --file workflow.json\n".into()
+                    "No workflows. Create one with: soulsteads-forge workflows create ID --file workflow.json\n".into()
                 } else {
                     table(&["WORKFLOW", "ENABLED", "CREATED"], &rows)
                 }
@@ -1273,7 +1273,7 @@ pub(crate) async fn workflows(client: &ApiClient, command: Workflows) -> anyhow:
             if !wait {
                 return print(json, &result, |r| {
                     format!(
-                        "Admitted run {}\nRequest key {} (reuse with --key to safely repeat after a lost response)\nFollow with: agent-forge runs show {}\n",
+                        "Admitted run {}\nRequest key {} (reuse with --key to safely repeat after a lost response)\nFollow with: soulsteads-forge runs show {}\n",
                         r["run_id"].as_str().unwrap_or(""),
                         r["key"].as_str().unwrap_or(""),
                         r["run_id"].as_str().unwrap_or("")
@@ -1297,7 +1297,7 @@ pub(crate) async fn workflows(client: &ApiClient, command: Workflows) -> anyhow:
             let status = run["status"].as_str().unwrap_or("");
             if ACTIVE.contains(&status) {
                 return Err(fail(format!(
-                    "Run {run_id} is still {status} after {timeout}s; follow with agent-forge runs show {run_id}"
+                    "Run {run_id} is still {status} after {timeout}s; follow with soulsteads-forge runs show {run_id}"
                 )));
             }
             if status != "SUCCESS" {
@@ -1334,7 +1334,7 @@ mod tests {
         assert!(text.contains("Failure   step b: root/step:b: explicit flow failure"));
         assert!(text.contains("hi"));
         assert!(text.contains("0.50s"));
-        assert!(text.contains("agent-forge runs retry r1 --key NEW_KEY"));
+        assert!(text.contains("soulsteads-forge runs retry r1 --key NEW_KEY"));
         assert!(!text.contains("runs cancel"));
     }
     #[test]
@@ -1350,7 +1350,7 @@ mod tests {
         run["workflow"] = crate::run_views::workflow_steps(&def, &run).unwrap();
         let text = render_run(&run);
         assert!(text.contains("Failure   Location unknown: "));
-        assert!(text.contains("agent-forge runs show r9 --json"));
+        assert!(text.contains("soulsteads-forge runs show r9 --json"));
         assert!(
             text.contains(
                 "Unverified refusal (not located) root/step:use: input reference failed: x"
@@ -1376,7 +1376,7 @@ mod tests {
         );
         assert!(
             text.contains("Trigger  sched-operator.digest-trigger-")
-                && text.contains("agent-forge runs show forge-v1-abc")
+                && text.contains("soulsteads-forge runs show forge-v1-abc")
         );
         assert!(text.contains("never retried automatically"));
         let pending =
@@ -1399,7 +1399,7 @@ mod tests {
             "members":[{"kind":"run","state":"running","run_id":"forge-v1-aaaaaaaaaaaaaaaaaaaaaaaa","work_id":"held","started_at":0,"activity":{"kind":"started"}}],
             "members_shown":1,"members_yours":2,
             "members_listing":{"identities_listed":true,"complete":false,"native_scan_complete":true,"shown":1,"found_in_scan":2,"note":"1 more of your workflows were found but not listed (member limit 1)."},
-            "recent":[],"recent_window":{"complete":false,"unavailable":1,"note":"1 of your finished runs in this window could not be read for display right now; they are recorded, not absent. Open them from Runs. See Runs (agent-forge runs search) for full history."}}],
+            "recent":[],"recent_window":{"complete":false,"unavailable":1,"note":"1 of your finished runs in this window could not be read for display right now; they are recorded, not absent. Open them from Runs. See Runs (soulsteads-forge runs search) for full history."}}],
             "admitted_not_on_queue":{"yours":[],"home_total":0}});
         let text = render_queues(&v);
         assert!(

@@ -126,7 +126,7 @@ class Live:
         if token is not None:
             env['FORGE_TOKEN'] = token
         r = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
-        line = ' '.join(['agent-forge', *args[:0], '--home', '$HOME_DIR', '--url', url or self.url, *args])
+        line = ' '.join(['soulsteads-forge', *args[:0], '--home', '$HOME_DIR', '--url', url or self.url, *args])
         self.commands.append(f'{line}\n  -> rc={r.returncode}\n  stdout: {r.stdout.strip()[:600]}\n  stderr: {r.stderr.strip()[:300]}')
         return r.returncode, r.stdout, r.stderr
 

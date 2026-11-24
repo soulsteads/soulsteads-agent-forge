@@ -4,7 +4,7 @@
 
 | What you are doing | What you need |
 | --- | --- |
-| Build `agent-forge` | Linux, Rust 1.97 or later, and a C compiler |
+| Build `soulsteads-forge` | Linux, Rust 1.97 or later, and a C compiler |
 | Start a new home | An empty, dedicated PostgreSQL database for DBOS and a writable private home |
 | Back up or restore | `psql`, `pg_dump`, and `pg_restore` on `PATH`, matching the server's major version |
 | Run the documentation and source checks | Git and Python 3 |

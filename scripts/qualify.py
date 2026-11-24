@@ -19,7 +19,7 @@ def main():
     evidence = []
     binary = Path(os.environ["FORGE_BINARY"]).resolve(strict=True)
     assert binary.read_bytes()[:4] == b"\x7fELF", "candidate must be a native ELF, not a Python launcher"
-    pinned=state/"agent-forge"
+    pinned=state/"soulsteads-forge"
     shutil.copy2(binary,pinned)
     binary=pinned
     cli = [str(binary), "--home", str(home)]

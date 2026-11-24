@@ -1,4 +1,4 @@
-//! `agent-forge doctor`: read-only diagnosis. It changes nothing: no row, no file, no
+//! `soulsteads-forge doctor`: read-only diagnosis. It changes nothing: no row, no file, no
 //! workflow, and never runs work. Online (through the service) it checks everything; with
 //! the service stopped the CLI runs the subset that needs only the home and the database.
 //! Messages are value-free: they name settings and identities, never secrets.
@@ -185,7 +185,7 @@ pub async fn offline(home: std::path::PathBuf, overrides: &Overrides, env: Env<'
                 "config",
                 "fail",
                 text,
-                Some("Fix config.json (the message names the field), or run `agent-forge init` for a new home. The service will not start until it loads.".into()),
+                Some("Fix config.json (the message names the field), or run `soulsteads-forge init` for a new home. The service will not start until it loads.".into()),
             ));
             return report("offline", checks);
         }
@@ -207,7 +207,7 @@ pub async fn offline(home: std::path::PathBuf, overrides: &Overrides, env: Env<'
                 "database",
                 "fail",
                 "PostgreSQL is not reachable with the resolved connection (host, port, credentials or database missing)",
-                Some("Check the database URL source in `agent-forge settings show`, and that the server is running".into()),
+                Some("Check the database URL source in `soulsteads-forge settings show`, and that the server is running".into()),
             )),
             Ok(client) => {
                 let schema = client
@@ -272,14 +272,14 @@ pub async fn offline(home: std::path::PathBuf, overrides: &Overrides, env: Env<'
             "lost_runs",
             "warn",
             format!("{} admitted run(s) have no native workflow: {}", lost.len(), list(&lost)),
-            Some("Start the service (they become RECOVERY_REQUIRED), then `agent-forge runs reconcile RUN --decision not-applied|completed --note EVIDENCE --settled`".into()),
+            Some("Start the service (they become RECOVERY_REQUIRED), then `soulsteads-forge runs reconcile RUN --decision not-applied|completed --note EVIDENCE --settled`".into()),
         )),
         None => checks.push(check("lost_runs", "skip", "admission store or database not readable here (another process may own the home)", None)),
     }
     checks.push(check(
         "definitions",
         "skip",
-        "work and schedule definitions are validated by the running service: start it and run `agent-forge doctor` again",
+        "work and schedule definitions are validated by the running service: start it and run `soulsteads-forge doctor` again",
         None,
     ));
     report("offline", checks)
@@ -324,7 +324,7 @@ fn runner_summary(policy: &Policy, probes: Vec<(String, crate::harness::Probe)>)
                 probes.len(),
                 bad.join("; ")
             ),
-            Some("`agent-forge runners test NAME` re-probes one profile".into()),
+            Some("`soulsteads-forge runners test NAME` re-probes one profile".into()),
         )
     }
 }
@@ -432,7 +432,7 @@ impl Core {
         checks.push(if plugin_problems.is_empty() {
             check("plugins", "ok", format!("{} installed plugin release(s) verified; configured executables present", installed.len()), None)
         } else {
-            check("plugins", "fail", plugin_problems.join("; "), Some("Reinstall the plugin release (`agent-forge plugins install`) or restore it from a backup".into()))
+            check("plugins", "fail", plugin_problems.join("; "), Some("Reinstall the plugin release (`soulsteads-forge plugins install`) or restore it from a backup".into()))
         });
         // Work definitions and schedules.
         let rows: Vec<(String, String)> = self.store.write(|c| {
@@ -460,7 +460,7 @@ impl Core {
         checks.push(if bad.is_empty() {
             check("definitions", "ok", format!("{} work definition(s) validate against current authority and configuration{}", rows.len() - skipped, if skipped > 0 { format!(" ({skipped} belong to disabled plugins)") } else { String::new() }), None)
         } else {
-            check("definitions", "fail", format!("{} of {} work definition(s) no longer validate: {}", bad.len(), rows.len(), bad.iter().take(LIST_CAP).cloned().collect::<Vec<_>>().join("; ")), Some("Definitions are immutable: disable the work (`agent-forge work disable ID`) and register a corrected one, or restore the authority/configuration it needs".into()))
+            check("definitions", "fail", format!("{} of {} work definition(s) no longer validate: {}", bad.len(), rows.len(), bad.iter().take(LIST_CAP).cloned().collect::<Vec<_>>().join("; ")), Some("Definitions are immutable: disable the work (`soulsteads-forge work disable ID`) and register a corrected one, or restore the authority/configuration it needs".into()))
         });
         checks.push(match self.schedules(actor).await {
             Ok(list) => check(
@@ -515,7 +515,7 @@ impl Core {
         checks.push(if lost.is_empty() {
             check("lost_runs", "ok", "no admitted run is missing its native workflow", None)
         } else {
-            check("lost_runs", "fail", format!("{} lost run(s) await reconciliation: {}", lost.len(), list(&lost)), Some("Inspect the evidence, then `agent-forge runs reconcile RUN --decision not-applied|completed --note EVIDENCE --settled`".into()))
+            check("lost_runs", "fail", format!("{} lost run(s) await reconciliation: {}", lost.len(), list(&lost)), Some("Inspect the evidence, then `soulsteads-forge runs reconcile RUN --decision not-applied|completed --note EVIDENCE --settled`".into()))
         });
         let orphans = self.orphan_workflows().await.unwrap_or_default();
         checks.push(if orphans.is_empty() {
@@ -531,7 +531,7 @@ impl Core {
         checks.push(if recovery == 0 {
             check("recovery_required", "ok", "no run is waiting for reconciliation", None)
         } else {
-            check("recovery_required", "warn", format!("{recovery} run(s) are RECOVERY_REQUIRED: reconcile each with settled provider evidence"), Some("`agent-forge runs search --status RECOVERY_REQUIRED`".into()))
+            check("recovery_required", "warn", format!("{recovery} run(s) are RECOVERY_REQUIRED: reconcile each with settled provider evidence"), Some("`soulsteads-forge runs search --status RECOVERY_REQUIRED`".into()))
         });
         // Recent definite failures (informational): where to start diagnosing.
         let failed = self
@@ -561,7 +561,7 @@ impl Core {
                         .unwrap_or_default()
                 ),
                 Some(format!(
-                    "agent-forge runs show {}   and   agent-forge runs logs {}",
+                    "soulsteads-forge runs show {}   and   soulsteads-forge runs logs {}",
                     latest["run_id"].as_str().unwrap_or("RUN"),
                     latest["run_id"].as_str().unwrap_or("RUN")
                 )),

@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use std::{net::IpAddr, path::PathBuf};
 #[derive(Parser)]
 #[command(
-    name = "agent-forge",
+    name = "soulsteads-forge",
     version,
     about = "Native Rust DBOS work execution"
 )]
@@ -44,7 +44,7 @@ enum Command {
         #[command(subcommand)]
         command: Definitions,
     },
-    /// Run Forge as a systemd --user service generated from the resolved settings.
+    /// Preview or install a Linux systemd user or system service.
     Service {
         #[command(subcommand)]
         command: Service,
@@ -280,30 +280,73 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             agent_forge::doctor::cli(home, overrides, url, &cli.token_env, json, offline).await
         }
         Command::Service { command } => {
-            let policy = agent_forge::core::load_policy(&home)?;
-            let resolved = Settings::resolve(home, &policy, &overrides, env)?;
-            let (action, name, env_file, start) = match &command {
-                Service::Preview { name, env_file } => ("preview", name, env_file, false),
+            let (action, name, env_file, start, scope) = match command {
+                Service::Preview {
+                    scope,
+                    name,
+                    env_file,
+                } => ("preview", name, env_file, false, scope),
                 Service::Install {
+                    scope,
                     name,
                     env_file,
                     start,
-                } => ("install", name, env_file, *start),
-                Service::Uninstall { name } => ("uninstall", name, &None, false),
-                Service::Status { name } => ("status", name, &None, false),
+                } => ("install", name, env_file, start, scope),
+                Service::Uninstall { name } => ("uninstall", name, None, false, Default::default()),
+                Service::Status { name } => ("status", name, None, false, Default::default()),
             };
-            let result = agent_forge::service_unit::run(
-                action,
-                &resolved,
-                &policy,
-                agent_forge::service_unit::Request {
-                    name: name.as_deref(),
-                    env_file: env_file.as_deref(),
-                    start,
-                },
-                agent_forge::settings::systemd_user_dir(env)?,
-            )
-            .await?;
+            if !scope.system && scope.run_as.is_some() {
+                return Err(agent_forge::settings::ConfigError(
+                    "--run-as requires --system".into(),
+                )
+                .into());
+            }
+            let result = if scope.system {
+                let system_home = cli
+                    .home
+                    .as_deref()
+                    .filter(|path| path.is_absolute())
+                    .ok_or_else(|| {
+                        settings::ConfigError(
+                            "--system requires an explicit absolute --home path".into(),
+                        )
+                    })?;
+                if cli.database_url.is_some() || cli.url.is_some() {
+                    return Err(settings::ConfigError(
+                        "system service settings come from the home and optional --env-file, not --url or --database-url".into(),
+                    ).into());
+                }
+                let run_as = scope.run_as.as_deref().ok_or_else(|| {
+                    settings::ConfigError("--system requires --run-as USER".into())
+                })?;
+                let exe = std::env::current_exe()?;
+                agent_forge::service_unit::run_system(
+                    action,
+                    system_home,
+                    &exe,
+                    agent_forge::service_unit::SystemRequest {
+                        name: name.as_deref(),
+                        env_file: env_file.as_deref(),
+                        run_as,
+                        start,
+                    },
+                )?
+            } else {
+                let policy = agent_forge::core::load_policy(&home)?;
+                let resolved = Settings::resolve(home, &policy, &overrides, env)?;
+                agent_forge::service_unit::run(
+                    action,
+                    &resolved,
+                    &policy,
+                    agent_forge::service_unit::Request {
+                        name: name.as_deref(),
+                        env_file: env_file.as_deref(),
+                        start,
+                    },
+                    agent_forge::settings::systemd_user_dir(env)?,
+                )
+                .await?
+            };
             if action == "preview" {
                 print!("{}", result["text"].as_str().unwrap_or(""));
             } else {
@@ -348,9 +391,9 @@ mod tests {
     #[test]
     fn operational_arguments_require_intent_and_preserve_mcp() {
         for args in [
-            vec!["agent-forge", "work", "run", "w"],
+            vec!["soulsteads-forge", "work", "run", "w"],
             vec![
-                "agent-forge",
+                "soulsteads-forge",
                 "schedules",
                 "create",
                 "s",
@@ -360,7 +403,7 @@ mod tests {
                 "* * * * *",
             ],
             vec![
-                "agent-forge",
+                "soulsteads-forge",
                 "runs",
                 "reconcile",
                 "r",
@@ -369,12 +412,12 @@ mod tests {
                 "--note",
                 "evidence",
             ],
-            vec!["agent-forge", "--token", "secret", "snapshot"],
+            vec!["soulsteads-forge", "--token", "secret", "snapshot"],
         ] {
             assert!(Cli::try_parse_from(args).is_err());
         }
         let parsed = Cli::try_parse_from([
-            "agent-forge",
+            "soulsteads-forge",
             "mcp",
             "--url",
             "http://127.0.0.1:8110",
@@ -385,7 +428,7 @@ mod tests {
         assert_eq!(parsed.token_env, "CUSTOM_TOKEN");
         assert!(matches!(parsed.command, Command::Mcp));
         let parsed = Cli::try_parse_from([
-            "agent-forge",
+            "soulsteads-forge",
             "runs",
             "reconcile",
             "r",
@@ -403,7 +446,7 @@ mod tests {
             }
         ));
         let parsed = Cli::try_parse_from([
-            "agent-forge",
+            "soulsteads-forge",
             "work",
             "register",
             "w",
@@ -419,7 +462,7 @@ mod tests {
     #[test]
     fn plugins_run_passes_everything_after_the_command_through() {
         let parsed = Cli::try_parse_from([
-            "agent-forge",
+            "soulsteads-forge",
             "plugins",
             "run",
             "demo",
@@ -437,15 +480,15 @@ mod tests {
         };
         assert_eq!(id, "demo");
         assert_eq!(command, ["hello", "--flag", "-x", "value"]);
-        assert!(Cli::try_parse_from(["agent-forge", "plugins", "run", "demo"]).is_err());
-        assert!(Cli::try_parse_from(["agent-forge", "plugins", "install"]).is_err());
-        assert!(Cli::try_parse_from(["agent-forge", "plugins", "enable", "demo"]).is_ok());
+        assert!(Cli::try_parse_from(["soulsteads-forge", "plugins", "run", "demo"]).is_err());
+        assert!(Cli::try_parse_from(["soulsteads-forge", "plugins", "install"]).is_err());
+        assert!(Cli::try_parse_from(["soulsteads-forge", "plugins", "enable", "demo"]).is_ok());
     }
 
     #[test]
     fn parity_commands_parse_and_conflicting_flags_are_refused() {
         let ok = |args: &[&str]| {
-            let mut v = vec!["agent-forge"];
+            let mut v = vec!["soulsteads-forge"];
             v.extend_from_slice(args);
             Cli::try_parse_from(v)
         };
@@ -532,5 +575,26 @@ mod tests {
             .is_ok()
         );
         assert!(ok(&["service", "uninstall"]).is_ok());
+        let system = Cli::try_parse_from([
+            "soulsteads-forge",
+            "service",
+            "preview",
+            "--system",
+            "--run-as",
+            "forge-service",
+        ]);
+        if let Err(error) = system {
+            panic!("system preview arguments should parse: {error}");
+        }
+        assert!(
+            Cli::try_parse_from([
+                "soulsteads-forge",
+                "service",
+                "preview",
+                "--user",
+                "--system",
+            ])
+            .is_err()
+        );
     }
 }

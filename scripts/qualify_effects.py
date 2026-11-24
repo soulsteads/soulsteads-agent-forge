@@ -5,7 +5,7 @@ import httpx
 
 state=Path(os.environ['FORGE_TEST_STATE']).resolve();state.mkdir(parents=True,exist_ok=False)
 home=state/'home';binary=Path(os.environ['FORGE_BINARY']).resolve(strict=True);assert binary.read_bytes()[:4]==b'\x7fELF'
-pinned=state/'agent-forge';shutil.copy2(binary,pinned);binary=pinned
+pinned=state/'soulsteads-forge';shutil.copy2(binary,pinned);binary=pinned
 fixture=Path(os.environ.get('FORGE_PLUGIN_FIXTURE',str(Path(__file__).resolve().parents[1]/'tests/fixtures/effect-plugin.cjs'))).resolve(strict=True);receipt=state/'external-receipts.jsonl';pidfile=state/'core.pid';cli=[str(binary),'--home',str(home)]
 subprocess.run(cli+['init'],check=True,capture_output=True)
 cfg=json.loads((home/'config.json').read_text());cfg['plugins']={'plugin.fixture':{'command':[shutil.which('node'),str(fixture),str(receipt),str(pidfile)],'timeout_seconds':20}};cfg['actors']['operator']['types'].append('plugin.fixture');(home/'config.json').write_text(json.dumps(cfg));(home/'config.json').chmod(0o600)

@@ -5,7 +5,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
 COPY assets/ assets/
 COPY skills/ skills/
-RUN cargo build --release --locked --bin agent-forge
+RUN cargo build --release --locked --bin soulsteads-forge
 
 FROM docker.io/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 LABEL org.opencontainers.image.source="https://github.com/soulsteads/soulsteads-agent-forge"
@@ -16,10 +16,10 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --home-dir /data/home --no-create-home app \
     && install -d -m 0700 -o 10001 -g 10001 /data /data/home
 COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /usr/share/doc/soulsteads-agent-forge/
-COPY --from=build /src/target/release/agent-forge /usr/local/bin/agent-forge
+COPY --from=build /src/target/release/soulsteads-forge /usr/local/bin/soulsteads-forge
 ENV HOME=/data/home FORGE_HOME=/data/forge
 USER 10001:10001
 WORKDIR /data
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/usr/local/bin/agent-forge"]
+ENTRYPOINT ["/usr/local/bin/soulsteads-forge"]
 CMD ["--help"]

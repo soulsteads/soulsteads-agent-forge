@@ -254,7 +254,7 @@ async function skills() {
       }
     } }))));
   body.replaceChildren(h("h2", { text: "Skills" }),
-    h("p", { text: "Read-only catalog of the skills compiled into this Forge build, the same text `agent-forge skill` prints. Skills are distributed with releases; there is no install or edit lifecycle here." }),
+    h("p", { text: "Read-only catalog of the skills compiled into this Forge build, the same text `soulsteads-forge skill` prints. Skills are distributed with releases; there is no install or edit lifecycle here." }),
     r.skills.length ? U.scrollTable("Skill catalog", table(["Skill", "Description", "Size", "sha256", ""], rows, { id: "sk-table" })) : h("p", { class: "empty", text: "No skills." }), shown);
 }
 

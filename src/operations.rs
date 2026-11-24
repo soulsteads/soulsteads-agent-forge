@@ -1,6 +1,6 @@
 //! Operational CLI: named commands over the canonical API only.
 use crate::client::{ApiClient, ClientError, MAX_REQUEST};
-use clap::{Subcommand, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use std::{
     io::Read,
@@ -321,18 +321,35 @@ pub enum Definitions {
     },
 }
 
+#[derive(Args, Clone, Debug, Default)]
+pub struct ServiceScope {
+    /// Generate or manage the per-user unit (the default).
+    #[arg(long, group = "service_scope")]
+    pub user: bool,
+    /// Preview or install the fixed system unit. Requires --run-as USER.
+    #[arg(long, group = "service_scope")]
+    pub system: bool,
+    /// Non-root account used by a system service.
+    #[arg(long)]
+    pub run_as: Option<String>,
+}
+
 #[derive(Subcommand)]
 pub enum Service {
     /// The unit text that install would write (nothing is written).
     Preview {
+        #[command(flatten)]
+        scope: ServiceScope,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
         env_file: Option<PathBuf>,
     },
-    /// Install a systemd --user unit for this home. The database credential is never put in
-    /// the unit: --env-file names a private (0600) file that defines it.
+    /// Install a systemd unit without starting by default. System units run as a non-root
+    /// account. Credentials are never copied into the unit.
     Install {
+        #[command(flatten)]
+        scope: ServiceScope,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
