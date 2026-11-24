@@ -1,6 +1,7 @@
 .dockerignore
 .github/workflows/ci.yml
 .github/workflows/container.yml
+.github/workflows/release.yml
 .gitignore
 CHANGELOG.md
 Cargo.lock
@@ -61,6 +62,11 @@ scripts/qualify_plugins.py
 scripts/qualify_recovery.py
 scripts/qualify_recovery_browser.py
 scripts/qualify_upgrade.py
+scripts/release-notices/agent-client-protocol.LICENSE
+scripts/release-notices/dbos.LICENSE
+scripts/release-notices/jsonschema.LICENSE
+scripts/release-notices/simd.LICENSE
+scripts/release-notices/upstream.json
 scripts/smoke-container.sh
 scripts/smoke_installed.py
 skills/forge-operations/SKILL.md
