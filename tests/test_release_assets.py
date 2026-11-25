@@ -11,7 +11,9 @@ import textwrap
 import unittest
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/release.yml'
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / '.github/workflows/release.yml'
+BUILD_SCRIPT = ROOT / 'scripts/build-linux-bundle.sh'
 ARCHIVE = 'soulsteads-agent-forge-linux-x86_64.tar.gz'
 
 
@@ -104,7 +106,8 @@ class ReleaseAssetsTests(unittest.TestCase):
 @unittest.skipUnless(WORKFLOW.is_file(), 'requires the source checkout release workflow')
 class ReleasePackagingTests(unittest.TestCase):
     def test_build_and_smoke_use_the_renamed_executable(self):
-        workflow = WORKFLOW.read_text()
+        self.assertIn('scripts/build-linux-bundle.sh', WORKFLOW.read_text())
+        workflow = BUILD_SCRIPT.read_text()
         self.assertIn('--bin soulsteads-forge\n', workflow)
         self.assertIn('/release/soulsteads-forge" "$RUNNER_TEMP/$bundle/soulsteads-forge"', workflow)
         self.assertIn('"$RUNNER_TEMP/$bundle/soulsteads-forge" --help', workflow)
@@ -136,7 +139,7 @@ class ReleasePackagingTests(unittest.TestCase):
             ]}}))
             tree = root / 'tree.txt'
             tree.write_text('fixture v1.0.0 (fixture)\nselected v1.0.0 (proc-macro)\nselected v1.0.0 (*)\n')
-            script = textwrap.dedent(WORKFLOW.read_text().split("<<'PY'\n", 1)[1].split('\n          PY\n', 1)[0])
+            script = BUILD_SCRIPT.read_text().split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
             result = subprocess.run([sys.executable, '-B', '-c', script, metadata, bundle, tree],
                                     cwd=root, capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)

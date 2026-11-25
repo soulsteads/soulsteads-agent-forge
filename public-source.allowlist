@@ -39,10 +39,13 @@ examples/rust-pr-review/import.json
 examples/rust-pr-review/review_packet.py
 public-source.allowlist
 public-source.exclusions.json
+scripts/build-deb.sh
+scripts/build-linux-bundle.sh
 scripts/check_agent_schedule_rejection.py
 scripts/check_notices.py
 scripts/check_public_source.py
 scripts/export_source.py
+scripts/package-deb.py
 scripts/qualify.py
 scripts/qualify_acp.py
 scripts/qualify_backup.py
@@ -145,6 +148,7 @@ tests/harness_gate.rs
 tests/plugin_process.rs
 tests/safety.rs
 tests/test_acp_qualification.py
+tests/test_debian_package.py
 tests/test_export_source.py
 tests/test_publication_checks.py
 tests/test_release_assets.py
